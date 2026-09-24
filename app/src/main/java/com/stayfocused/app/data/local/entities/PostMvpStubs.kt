@@ -1,6 +1,8 @@
 package com.stayfocused.app.data.local.entities
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "unlock_events")
@@ -10,7 +12,18 @@ data class UnlockEventEntity(
     val durationMs: Long
 )
 
-@Entity(tableName = "geofence_profiles")
+@Entity(
+    tableName = "geofence_profiles",
+    foreignKeys = [
+        ForeignKey(
+            entity = FocusProfileEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["profileId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index(value = ["profileId"])]
+)
 data class GeofenceProfileEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val profileId: Long,

@@ -1,6 +1,9 @@
 package com.stayfocused.app.data.registry
 
 import android.content.Context
+import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -46,6 +49,8 @@ class PackageRegistry private constructor(
     }
 
     companion object {
+        private const val TAG = "PackageRegistry"
+
         val DEFAULT_BROWSERS = setOf(
             "com.android.chrome",
             "com.chrome.beta",
@@ -86,8 +91,9 @@ class PackageRegistry private constructor(
         }
 
         fun fromJson(jsonString: String): PackageRegistry {
-            val browsers = extractArrayItems(jsonString, "browserPackages")
-            val settings = extractArrayItems(jsonString, "settingsPackages")
+            val root = JSONObject(jsonString)
+            val browsers = root.optJSONArray("browserPackages")?.toStringSet() ?: emptySet()
+            val settings = root.optJSONArray("settingsPackages")?.toStringSet() ?: emptySet()
             return PackageRegistry(browsers, settings)
         }
 
@@ -98,16 +104,20 @@ class PackageRegistry private constructor(
                     fromJson(json)
                 }
             } catch (e: Exception) {
+                Log.w(TAG, "Failed to load/parse package registry from asset '$assetFileName'. Falling back to defaults.", e)
                 createDefault()
             }
         }
 
-        private fun extractArrayItems(json: String, arrayKey: String): Set<String> {
-            val regex = Regex("\"$arrayKey\"\\s*:\\s*\\[([^\\]]*)\\]")
-            val match = regex.find(json) ?: return emptySet()
-            val arrayContent = match.groupValues[1]
-            val itemRegex = Regex("\"([^\"]+)\"")
-            return itemRegex.findAll(arrayContent).map { it.groupValues[1].lowercase() }.toSet()
+        private fun JSONArray.toStringSet(): Set<String> {
+            val set = mutableSetOf<String>()
+            for (i in 0 until length()) {
+                val item = optString(i, "").trim().lowercase()
+                if (item.isNotEmpty()) {
+                    set.add(item)
+                }
+            }
+            return set
         }
     }
 }

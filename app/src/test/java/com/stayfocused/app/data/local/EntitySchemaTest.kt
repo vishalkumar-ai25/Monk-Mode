@@ -5,6 +5,8 @@ import com.stayfocused.app.data.local.entities.BlockedDomainEntity
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
 import com.stayfocused.app.data.local.entities.GeofenceProfileEntity
 import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
+import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
+import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
 import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
 import com.stayfocused.app.data.local.entities.StrictSessionEntity
 import com.stayfocused.app.data.local.entities.UnlockEventEntity
@@ -52,11 +54,20 @@ class EntitySchemaTest {
         assertEquals("Deep Work", entity.name)
         assertFalse(entity.isActive)
         assertFalse(entity.isStrictMode)
-        assertEquals("[]", entity.blockedPackagesJson)
-        assertEquals("[]", entity.blockedDomainsJson)
         assertNull(entity.scheduleStartTime)
         assertNull(entity.scheduleEndTime)
         assertEquals(0, entity.activeDaysMask)
+    }
+
+    @Test
+    fun testProfileJunctionEntities() {
+        val pkg = ProfileBlockedPackageEntity(profileId = 1L, packageName = "com.twitter.android")
+        assertEquals(1L, pkg.profileId)
+        assertEquals("com.twitter.android", pkg.packageName)
+
+        val domain = ProfileBlockedDomainEntity(profileId = 1L, domain = "twitter.com")
+        assertEquals(1L, domain.profileId)
+        assertEquals("twitter.com", domain.domain)
     }
 
     @Test
@@ -78,12 +89,13 @@ class EntitySchemaTest {
 
     @Test
     fun testRecoveryCodeEntity() {
-        val now = System.currentTimeMillis()
         val entity = RecoveryCodeEntity(
-            hashedCode = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            passwordHash = "aabbcc112233",
+            salt = "1122334455667788"
         )
         assertEquals(1, entity.id)
-        assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", entity.hashedCode)
+        assertEquals("aabbcc112233", entity.passwordHash)
+        assertEquals("1122334455667788", entity.salt)
         assertFalse(entity.isConsumed)
         assertTrue(entity.createdAt > 0)
     }

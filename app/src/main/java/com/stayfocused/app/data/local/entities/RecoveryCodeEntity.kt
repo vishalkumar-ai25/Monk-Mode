@@ -6,7 +6,8 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "recovery_codes")
 data class RecoveryCodeEntity(
     @PrimaryKey val id: Int = 1,
-    val hashedCode: String,
+    val passwordHash: String,
+    val salt: String,
     val isConsumed: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )

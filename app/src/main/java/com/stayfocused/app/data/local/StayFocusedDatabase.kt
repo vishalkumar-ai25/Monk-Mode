@@ -14,6 +14,8 @@ import com.stayfocused.app.data.local.entities.BlockedDomainEntity
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
 import com.stayfocused.app.data.local.entities.GeofenceProfileEntity
 import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
+import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
+import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
 import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
 import com.stayfocused.app.data.local.entities.StrictSessionEntity
 import com.stayfocused.app.data.local.entities.UnlockEventEntity
@@ -23,6 +25,8 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         AppLimitEntity::class,
         BlockedDomainEntity::class,
         FocusProfileEntity::class,
+        ProfileBlockedPackageEntity::class,
+        ProfileBlockedDomainEntity::class,
         StrictSessionEntity::class,
         RecoveryCodeEntity::class,
         UnlockEventEntity::class,
@@ -30,7 +34,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         NotificationBlockRuleEntity::class
     ],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
 
