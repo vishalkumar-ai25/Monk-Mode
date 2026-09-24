@@ -38,12 +38,22 @@ Each phase must be independently testable on-device with an explicit Definition 
    - Config-driven Settings-blocking & `DeviceAdminReceiver` anti-uninstall.
    - Battery optimization exemption + OEM autostart deep-link registry.
    - Documented ADB escape hatch.
+6. **Phase 6: Distraction Defense & Quick Breaks (Commercial Feature Parity)**
+   - Pure-Kotlin `NotificationDecisionEngine` (100% JVM unit test coverage) & `SuppressedNotificationEntity` Room vault.
+   - `FocusNotificationListenerService` (`android.service.notification.NotificationListenerService`) for canceling notifications from blocked apps in real time.
+   - Safety guard: Ongoing, media playback, foreground service, and system emergency notifications are never canceled.
+   - Pure-Kotlin `BreakDecisionEngine` and `BreakManager` enabling 5m/10m/15m temporary breaks during non-strict focus sessions.
+   - `TakeABreakTileService` (`android.service.quicksettings.TileService`) providing Quick Settings shade controls with live countdown state.
+7. **Phase 7: Production-Grade Jetpack Compose UI (Commercial Parity Dashboard)**
+   - Tabbed modern bottom navigation: Dashboard, App Limits, Web Blocker, Notification Vault, and Strict Lock.
+   - Circular daily screen time dial & dynamic 1-tap "Take a Break" countdown card.
+   - Interactive Notification History Vault viewing all silenced distractions with timestamp, search, and bulk purge.
+   - Searchable App Limits manager displaying real installed application icons, daily minute sliders, and launch limits.
 
-### Post-MVP (Explicitly Deferred — Do Not Build During MVP)
+### Post-MVP (Explicitly Deferred — Do Not Build During Phase 7)
 - Geofenced focus-profile triggers.
 - Keyword and adult-content filtering.
 - Instagram Reels / YouTube Shorts sub-component scraping.
-- Notification blocking.
 - Pomodoro ambient sounds.
 - Device-unlock-pattern analytics / activity timeline charts.
 *Rule:* If any task seems to require a post-MVP feature, stop and ask rather than improvising heuristics.
@@ -109,11 +119,25 @@ Each phase must be independently testable on-device with an explicit Definition 
    - `hashedCode: String` (SHA-256)
    - `isConsumed: Boolean`
    - `createdAt: Long`
+6. **`SuppressedNotificationEntity`**:
+   - `id: Long` (PK autoincrement)
+   - `packageName: String`
+   - `appName: String`
+   - `title: String?`
+   - `contentSnippet: String?`
+   - `postTimestamp: Long`
+   - `isViewed: Boolean`
+7. **`BreakSessionEntity`**:
+   - `id: Long` (PK, singleton = 1)
+   - `startTime: Long`
+   - `endTime: Long`
+   - `durationMinutes: Int`
+   - `isActive: Boolean`
 
 ### Post-MVP Schema Stubs (Schema Only, No DAOs/Wired Logic)
-6. **`UnlockEventEntity`**: `id`, `timestamp`, `durationMs`
-7. **`GeofenceProfileEntity`**: `id`, `profileId`, `latitude`, `longitude`, `radiusMeters`
-8. **`NotificationBlockRuleEntity`**: `id`, `packageName`, `filterRegex`, `blockAll`
+8. **`UnlockEventEntity`**: `id`, `timestamp`, `durationMs`
+9. **`GeofenceProfileEntity`**: `id`, `profileId`, `latitude`, `longitude`, `radiusMeters`
+10. **`NotificationBlockRuleEntity`**: `id`, `packageName`, `filterRegex`, `blockAll`
 
 ---
 

@@ -51,13 +51,20 @@ class FocusAccessibilityService : AccessibilityService() {
     @Volatile var cachedActiveProfiles: List<FocusProfileRule> = emptyList()
     @Volatile var cachedAppLimits: Map<String, AppLimitSnapshot> = emptyMap()
     @Volatile var isStrictModeActive: Boolean = false
+    @Volatile var cachedBreakEndTimeMs: Long = 0L
+
+    var isBreakActive: Boolean
+        get() = System.currentTimeMillis() < cachedBreakEndTimeMs && !isStrictModeActive
+        set(value) {
+            cachedBreakEndTimeMs = if (value) Long.MAX_VALUE else 0L
+        }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
         if (overlayManager == null) {
-            overlayManager = BlockOverlayManager(applicationContext)
+            overlayManager = BlockOverlayManager(this)
         }
         if (packageRegistry == null) {
             packageRegistry = PackageRegistry.fromAsset(applicationContext)
@@ -106,6 +113,7 @@ class FocusAccessibilityService : AccessibilityService() {
             appLimit = appLimit,
             activeProfiles = cachedActiveProfiles,
             isStrictModeActive = isStrictModeActive,
+            isBreakActive = isBreakActive,
             antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED,
             isSettingsOrInstaller = isSettingsOrInstaller,
             isGracePeriodActive = isGracePeriodActive
@@ -130,12 +138,13 @@ class FocusAccessibilityService : AccessibilityService() {
 
         when (decision) {
             is InterceptionResult.Block -> {
-                Log.i(TAG, "Blocking package $target: ${decision.reason}")
+                val manager = overlayManager
+                val canDraw = manager?.canDrawOverlays() ?: false
+                Log.i(TAG, "Blocking package $target: ${decision.reason} | canDrawOverlays=$canDraw")
                 if (decision.reason is BlockReason.SettingsTamper) {
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
-                val manager = overlayManager
-                if (manager != null && manager.canDrawOverlays()) {
+                if (manager != null && canDraw) {
                     manager.showOverlay(
                         reason = decision.reason,
                         onReturnHome = {
@@ -210,6 +219,15 @@ class FocusAccessibilityService : AccessibilityService() {
                     .catch { e -> Log.e(TAG, "Error observing strict sessions", e) }
                     .collectLatest { session ->
                         isStrictModeActive = session != null && session.isActive
+                    }
+            }
+
+            // 4. Observe Break Sessions
+            serviceScope.launch {
+                db.breakSessionDao().getActiveBreak()
+                    .catch { e -> Log.e(TAG, "Error observing break sessions", e) }
+                    .collectLatest { session ->
+                        cachedBreakEndTimeMs = if (session != null && session.isActive) session.endTime else 0L
                     }
             }
         } catch (e: Exception) {

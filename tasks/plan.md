@@ -246,3 +246,128 @@ Phase 1: Gradle & Room Foundation
 ### Task 5.5: Phase 5 Definition of Done (DoD) Verification
 - **Description:** Complete end-to-end audit on physical device across stock, Samsung, and Xiaomi.
 - **Dependencies:** Tasks 5.1 – 5.4
+
+---
+
+## Phase 6: Distraction Defense & Quick Breaks (Commercial Parity)
+
+### Task 6.1: Notification Interception Engine & Room Storage (TDD)
+- **Description:** Implement `SuppressedNotificationEntity`, `SuppressedNotificationDao`, and pure Kotlin `NotificationDecisionEngine`. Decides whether an incoming notification should be canceled based on active app blocks, active profiles, and safety exceptions (ongoing, foreground service, calls, and system alerts are NEVER canceled).
+- **Acceptance criteria:**
+  - `NotificationDecisionEngineTest` achieves 100% JVM test coverage across normal, blocked, ongoing, and call-type notifications.
+  - `SuppressedNotificationDao` handles insert, query, mark-as-viewed, and age-based purge.
+- **Verification:**
+  - `./gradlew testDebugUnitTest --tests "com.stayfocused.app.notification.*"` passes.
+- **Dependencies:** Phase 5
+- **Files touched:**
+  - `app/src/main/java/com/stayfocused/app/data/local/entities/SuppressedNotificationEntity.kt`
+  - `app/src/main/java/com/stayfocused/app/data/local/dao/SuppressedNotificationDao.kt`
+  - `app/src/main/java/com/stayfocused/app/data/local/StayFocusedDatabase.kt`
+  - `app/src/main/java/com/stayfocused/app/notification/NotificationDecisionEngine.kt`
+  - `app/src/test/java/com/stayfocused/app/notification/NotificationDecisionEngineTest.kt`
+
+### Task 6.2: FocusNotificationListenerService OS Adapter
+- **Description:** Implement `FocusNotificationListenerService` extending Android's `NotificationListenerService`. Captures `onNotificationPosted`, checks with `NotificationDecisionEngine`, executes `cancelNotification(sbn.key)` for distracting notifications, and stores summary in the Room vault.
+- **Acceptance criteria:**
+  - Service registered in `AndroidManifest.xml` with `BIND_NOTIFICATION_LISTENER_SERVICE`.
+  - Non-blocking, coroutine-backed Room persistence for intercepted notifications.
+- **Verification:**
+  - Unit tests verifying service lifecycle and notification processing callbacks.
+- **Dependencies:** Task 6.1
+- **Files touched:**
+  - `app/src/main/java/com/stayfocused/app/service/FocusNotificationListenerService.kt`
+  - `app/src/main/AndroidManifest.xml`
+  - `app/src/test/java/com/stayfocused/app/service/FocusNotificationListenerServiceTest.kt`
+
+### Task 6.3: Break Engine & Interception Bypass (TDD)
+- **Description:** Implement `BreakSessionEntity`, `BreakSessionDao`, and pure Kotlin `BreakDecisionEngine`. Allows taking 5m, 10m, or 15m breaks during non-strict focus sessions. When a break is active, `InterceptionDecisionEngine` grants temporary `ALLOW` to apps.
+- **Acceptance criteria:**
+  - `BreakDecisionEngineTest` verifies break start, active expiration calculation, early cancellation, and rejection during active strict sessions.
+  - Integration with `InterceptionDecisionEngine` verified.
+- **Verification:**
+  - `./gradlew testDebugUnitTest --tests "com.stayfocused.app.break.*"` passes.
+- **Dependencies:** Task 6.1
+- **Files touched:**
+  - `app/src/main/java/com/stayfocused/app/data/local/entities/BreakSessionEntity.kt`
+  - `app/src/main/java/com/stayfocused/app/data/local/dao/BreakSessionDao.kt`
+  - `app/src/main/java/com/stayfocused/app/data/local/StayFocusedDatabase.kt`
+  - `app/src/main/java/com/stayfocused/app/break/BreakDecisionEngine.kt`
+  - `app/src/main/java/com/stayfocused/app/domain/InterceptionDecisionEngine.kt`
+  - `app/src/test/java/com/stayfocused/app/break/BreakDecisionEngineTest.kt`
+
+### Task 6.4: Quick Settings Tile (TakeABreakTileService)
+- **Description:** Implement `TakeABreakTileService` extending Android's `TileService`. Shows "Take a Break" when idle and updates dynamically with remaining break time when active. Tapping toggles break or initiates break selection.
+- **Acceptance criteria:**
+  - Registered in manifest with `BIND_QUICK_SETTINGS_TILE`.
+  - Accurately synchronizes `qsTile.state` with `BreakDecisionEngine`.
+- **Verification:**
+  - Unit tests for tile state transitions.
+- **Dependencies:** Task 6.3
+- **Files touched:**
+  - `app/src/main/java/com/stayfocused/app/tile/TakeABreakTileService.kt`
+  - `app/src/main/AndroidManifest.xml`
+  - `app/src/test/java/com/stayfocused/app/tile/TakeABreakTileServiceTest.kt`
+
+### Task 6.5: Phase 6 DoD Verification & On-Device Testing
+- **Description:** Complete end-to-end DoD verification and install on connected physical device (`V49TW4RWQOZ5IFBA`).
+- **Acceptance criteria:**
+  - `tasks/dod/phase6_dod.md` completed.
+  - All unit tests pass across debug and release build variants.
+  - Deployed to device via `adb install -r`.
+- **Dependencies:** Tasks 6.1 – 6.4
+
+---
+
+## Phase 7: Production-Grade Jetpack Compose UI (Commercial Parity)
+
+### Task 7.1: UI Navigation Framework & App Tabs
+- **Description:** Implement a clean Material 3 `NavigationBar` with 5 dedicated screens:
+  1. `DashboardScreen`: Daily screen time dial, quick break card, active focus profile banner.
+  2. `AppLimitsScreen`: Searchable list with installed application icons, limit sliders, and quick toggle.
+  3. `WebBlockerScreen`: Local DNS VPN status, custom domain rules, and one-tap categories.
+  4. `NotificationVaultScreen`: Suppressed notification history feed with timestamp, search, and bulk purge.
+  5. `StrictLockScreen`: Emergency recovery code generator, anti-uninstall status, and 24–48h delayed unlock.
+- **Acceptance criteria:**
+  - Responsive tab navigation with state preservation.
+  - Clean separation into modular `@Composable` screen files under `com.stayfocused.app.ui.screens`.
+- **Verification:**
+  - Preview & unit test compiling without errors.
+- **Dependencies:** Phase 6
+- **Files touched:**
+  - `app/src/main/java/com/stayfocused/app/ui/screens/*`
+  - `app/src/main/java/com/stayfocused/app/ui/MainActivity.kt`
+
+### Task 7.2: Daily Usage Dial & Take a Break Card
+- **Description:** Implement `DailyUsageDial` with smooth Canvas circular progress ring tracking today's screen time against daily target. Implement `TakeABreakCard` observing `BreakSessionDao` with live countdown timer and 5m/10m/15m quick break start buttons.
+- **Acceptance criteria:**
+  - Correct percentage calculation and color gradation (green -> amber -> red).
+  - Tapping break button starts break in Room database; UI updates immediately.
+- **Verification:**
+  - Unit tests verifying progress math and break state presentation.
+- **Dependencies:** Task 7.1
+
+### Task 7.3: Notification History Vault Screen
+- **Description:** Implement `NotificationVaultScreen` showing list of notifications suppressed during focus sessions. Includes app label, notification title, message snippet, and timestamp. Provides "Mark all as read" and "Clear all" buttons.
+- **Acceptance criteria:**
+  - Observes `SuppressedNotificationDao.getAll()` reactively.
+  - Shows clean empty state illustration when zero notifications are suppressed.
+- **Verification:**
+  - Unit test verifying list rendering with sample suppressed notifications.
+- **Dependencies:** Task 7.1
+
+### Task 7.4: App Limits Manager with Async Icon Loading
+- **Description:** Implement `AppLimitsScreen` with search bar, real app icon loading via coroutines (`PackageManager.getApplicationIcon`), and interactive configuration dialog for daily minutes and launch limits.
+- **Acceptance criteria:**
+  - Smooth scrolling LazyColumn without UI jank.
+  - Saving limits updates Room database immediately.
+- **Verification:**
+  - Unit test verifying search filter and limit mutations.
+- **Dependencies:** Task 7.1
+
+### Task 7.5: Phase 7 DoD Verification & Device Deployment
+- **Description:** Complete end-to-end DoD verification and install on physical device (`V49TW4RWQOZ5IFBA`).
+- **Acceptance criteria:**
+  - `tasks/dod/phase7_dod.md` completed.
+  - All unit tests pass across debug and release build variants.
+  - Deployed to device via `adb install -r`.
+- **Dependencies:** Tasks 7.1 – 7.4

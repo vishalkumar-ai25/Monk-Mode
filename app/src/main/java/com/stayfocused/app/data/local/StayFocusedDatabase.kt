@@ -16,9 +16,13 @@ import com.stayfocused.app.data.local.entities.GeofenceProfileEntity
 import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
-import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
+import com.stayfocused.app.data.local.dao.BreakSessionDao
+import com.stayfocused.app.data.local.dao.SuppressedNotificationDao
+import com.stayfocused.app.data.local.entities.BreakSessionEntity
+import com.stayfocused.app.data.local.entities.SuppressedNotificationEntity
 import com.stayfocused.app.data.local.entities.StrictSessionEntity
 import com.stayfocused.app.data.local.entities.UnlockEventEntity
+import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
 
 @Database(
     entities = [
@@ -31,9 +35,11 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         RecoveryCodeEntity::class,
         UnlockEventEntity::class,
         GeofenceProfileEntity::class,
-        NotificationBlockRuleEntity::class
+        NotificationBlockRuleEntity::class,
+        SuppressedNotificationEntity::class,
+        BreakSessionEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -43,6 +49,8 @@ abstract class StayFocusedDatabase : RoomDatabase() {
     abstract fun focusProfileDao(): FocusProfileDao
     abstract fun strictSessionDao(): StrictSessionDao
     abstract fun recoveryCodeDao(): RecoveryCodeDao
+    abstract fun suppressedNotificationDao(): SuppressedNotificationDao
+    abstract fun breakSessionDao(): BreakSessionDao
 
     companion object {
         @Volatile

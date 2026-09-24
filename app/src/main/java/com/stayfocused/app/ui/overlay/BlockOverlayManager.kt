@@ -88,7 +88,9 @@ class BlockOverlayManager(
             try {
                 windowManager.addView(composeView, params)
                 overlayView = composeView
+                android.util.Log.i("BlockOverlayManager", "Successfully added overlay view to WindowManager")
             } catch (e: Exception) {
+                android.util.Log.e("BlockOverlayManager", "Failed to add overlay view to WindowManager", e)
                 owner.destroy()
                 lifecycleOwner = null
                 overlayView = null

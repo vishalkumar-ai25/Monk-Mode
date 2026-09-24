@@ -32,3 +32,18 @@
 - [x] **Task 5.3**: DeviceAdminReceiver & Settings App Interception
 - [x] **Task 5.4**: OEM Survival & ADB Escape Hatch Documentation
 - [x] **Task 5.5**: Phase 5 Definition of Done (DoD) Verification
+
+## Phase 6: Distraction Defense & Quick Breaks (Commercial Parity)
+- [x] **Task 6.1**: Notification Interception Engine & Room Storage (TDD)
+- [x] **Task 6.2**: FocusNotificationListenerService OS Adapter
+- [x] **Task 6.3**: Break Engine & Interception Bypass (TDD)
+- [x] **Task 6.4**: Quick Settings Tile (TakeABreakTileService)
+- [x] **Task 6.5**: Phase 6 Definition of Done (DoD) Verification
+
+## Phase 7: Production-Grade Jetpack Compose UI (Commercial Parity)
+- [x] **Task 7.1**: UI Navigation Framework & App Tabs
+- [x] **Task 7.2**: Daily Usage Dial & Take a Break Card (Dashboard)
+- [x] **Task 7.3**: Notification History Vault Screen
+- [x] **Task 7.4**: App Limits Manager with Async Icon Loading
+- [x] **Task 7.5**: Phase 7 Definition of Done (DoD) Verification
+

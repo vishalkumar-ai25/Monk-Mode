@@ -10,4 +10,5 @@
 */build
 .externalNativeBuild
 .cxx
+.kotlin/
 

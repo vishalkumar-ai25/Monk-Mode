@@ -43,7 +43,8 @@ class DnsVpnService : VpnService() {
         const val ACTION_STOP = "com.stayfocused.app.vpn.ACTION_STOP"
 
         const val VPN_IP = "10.0.0.2"
-        const val DNS_UPSTREAM = "1.1.1.1"
+        const val DNS_GATEWAY = "10.0.0.1"
+        val DNS_UPSTREAMS = listOf("8.8.8.8", "1.1.1.1", "8.8.4.4", "9.9.9.9")
         const val DNS_PORT = 53
 
         @Volatile
@@ -73,7 +74,7 @@ class DnsVpnService : VpnService() {
             val query = parsed.query ?: return null
 
             return if (isDomainBlocked(query.qname, blockedDomains)) {
-                Log.d(TAG, "Synthesizing NXDOMAIN for blocked domain: ${query.qname}")
+                Log.i(TAG, "🚫 Synthesizing NXDOMAIN for BLOCKED domain: ${query.qname}")
                 DnsPacketParser.createNxDomainResponse(rawPacket)
             } else {
                 val upstreamResponse = upstreamResolver(parsed.dnsPayload)
@@ -93,6 +94,10 @@ class DnsVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val blockedDomainsCache: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    // 60-second in-memory DNS cache to accelerate frequent domain queries (Google, etc.)
+    private val dnsResponseCache = ConcurrentHashMap<String, Pair<ByteArray, Long>>()
+    private val CACHE_TTL_MS = 60_000L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
@@ -114,15 +119,15 @@ class DnsVpnService : VpnService() {
         try {
             vpnInterface = Builder()
                 .setSession("Stay Focused DNS Filter")
-                .addAddress(VPN_IP, 32)
-                .addDnsServer(VPN_IP)
-                .addRoute(VPN_IP, 32) // Narrow routing: strictly DNS IP
+                .addAddress(VPN_IP, 24)
+                .addDnsServer(DNS_GATEWAY)
+                .addRoute(DNS_GATEWAY, 32) // Route DNS queries for 10.0.0.1 into TUN
                 .setMtu(1500)
                 .setBlocking(true)
                 .establish()
 
             isVpnRunning = true
-            Log.i(TAG, "DNS VPN TUN interface established with narrow route $VPN_IP/32")
+            Log.i(TAG, "DNS VPN TUN interface established with gateway $DNS_GATEWAY/32")
             startPacketLoop()
         } catch (e: Exception) {
             Log.e(TAG, "Failed establishing VPN TUN interface", e)
@@ -132,16 +137,11 @@ class DnsVpnService : VpnService() {
 
     private fun startPacketLoop() {
         val pfd = vpnInterface ?: return
-        serviceScope.launch {
+        serviceScope.launch(Dispatchers.IO) {
             val inputStream = FileInputStream(pfd.fileDescriptor)
             val outputStream = FileOutputStream(pfd.fileDescriptor)
             val packetBuffer = ByteArray(1500)
-
-            val upstreamSocket = DatagramSocket().apply {
-                protect(this)
-                soTimeout = 3000
-            }
-            val upstreamAddress = InetAddress.getByName(DNS_UPSTREAM)
+            val writeLock = Any()
 
             try {
                 while (isVpnRunning) {
@@ -149,36 +149,90 @@ class DnsVpnService : VpnService() {
                     if (bytesRead <= 0) continue
 
                     val rawPacket = packetBuffer.copyOf(bytesRead)
-                    val responsePacket = processDnsPacket(
-                        rawPacket = rawPacket,
-                        blockedDomains = blockedDomainsCache.toSet(),
-                        upstreamResolver = { queryDnsPayload ->
-                            try {
-                                val sendPacket = DatagramPacket(queryDnsPayload, queryDnsPayload.size, upstreamAddress, DNS_PORT)
-                                upstreamSocket.send(sendPacket)
 
-                                val receiveBuffer = ByteArray(1500)
-                                val receivePacket = DatagramPacket(receiveBuffer, receiveBuffer.size)
-                                upstreamSocket.receive(receivePacket)
-                                receiveBuffer.copyOf(receivePacket.length)
-                            } catch (e: Exception) {
-                                null
+                    // Launch concurrent worker for each DNS packet so no query blocks another
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            val responsePacket = processDnsPacket(
+                                rawPacket = rawPacket,
+                                blockedDomains = blockedDomainsCache.toSet(),
+                                upstreamResolver = { queryPayload ->
+                                    resolveUpstream(queryPayload)
+                                }
+                            )
+
+                            if (responsePacket != null) {
+                                synchronized(writeLock) {
+                                    outputStream.write(responsePacket)
+                                }
                             }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error handling DNS query packet", e)
                         }
-                    )
-
-                    if (responsePacket != null) {
-                        outputStream.write(responsePacket)
                     }
                 }
             } catch (e: Exception) {
                 if (isVpnRunning) {
                     Log.e(TAG, "Packet loop encountered error", e)
                 }
-            } finally {
-                upstreamSocket.close()
             }
         }
+    }
+
+    private fun resolveUpstream(queryPayload: ByteArray): ByteArray? {
+        val parsed = DnsPacketParser.parseDnsQuery(queryPayload)
+        val now = System.currentTimeMillis()
+
+        // 1. Check in-memory DNS cache
+        if (parsed != null) {
+            val cacheKey = "${parsed.qname}:${parsed.qtype}"
+            val cached = dnsResponseCache[cacheKey]
+            if (cached != null && (now - cached.second) < CACHE_TTL_MS) {
+                // Reuse response with current transaction ID
+                val cachedPayload = cached.first.copyOf()
+                cachedPayload[0] = (parsed.transactionId shr 8).toByte()
+                cachedPayload[1] = parsed.transactionId.toByte()
+                return cachedPayload
+            }
+        }
+
+        // 2. Query upstream DNS servers with failover (8.8.8.8, 1.1.1.1, etc.)
+        for (upstreamIp in DNS_UPSTREAMS) {
+            var socket: DatagramSocket? = null
+            try {
+                socket = DatagramSocket()
+                protect(socket)
+                socket.soTimeout = 1200
+
+                val upstreamAddress = InetAddress.getByName(upstreamIp)
+                val sendPacket = DatagramPacket(queryPayload, queryPayload.size, upstreamAddress, DNS_PORT)
+                socket.send(sendPacket)
+
+                val receiveBuffer = ByteArray(1500)
+                val receivePacket = DatagramPacket(receiveBuffer, receiveBuffer.size)
+                socket.receive(receivePacket)
+
+                val responsePayload = receiveBuffer.copyOf(receivePacket.length)
+                if (responsePayload.isNotEmpty()) {
+                    if (parsed != null) {
+                        val cacheKey = "${parsed.qname}:${parsed.qtype}"
+                        dnsResponseCache[cacheKey] = Pair(responsePayload, now)
+                    }
+                    return responsePayload
+                }
+            } catch (e: Exception) {
+                // Failover to next DNS upstream
+                continue
+            } finally {
+                try {
+                    socket?.close()
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
+        }
+
+        return null
     }
 
     private fun observeBlockedDomains() {
@@ -190,6 +244,7 @@ class DnsVpnService : VpnService() {
                     .collectLatest { domainEntities ->
                         blockedDomainsCache.clear()
                         blockedDomainsCache.addAll(domainEntities.filter { it.isBlocked }.map { it.domain.lowercase() })
+                        Log.i(TAG, "Updated blocked domains cache: $blockedDomainsCache")
                     }
             } catch (e: Exception) {
                 Log.w(TAG, "Database not available for VPN domain observation", e)
@@ -206,6 +261,7 @@ class DnsVpnService : VpnService() {
             // Ignored
         }
         vpnInterface = null
+        dnsResponseCache.clear()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

@@ -159,6 +159,10 @@ class WatchdogWorker(
             onServiceDead()
         }
 
+        // 4. Purge suppressed notifications older than 7 days to preserve storage and privacy
+        val retentionThreshold = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000L)
+        database.suppressedNotificationDao().clearOlderThan(retentionThreshold)
+
         return Result.success()
     }
 }
