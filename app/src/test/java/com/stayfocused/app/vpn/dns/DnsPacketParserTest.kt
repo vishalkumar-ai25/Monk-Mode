@@ -188,4 +188,50 @@ class DnsPacketParserTest {
         assertEquals(0.toByte(), last4[2])
         assertEquals(0.toByte(), last4[3])
     }
+
+    @Test
+    fun testIsTcpPort853Detection() {
+        val tcp853Packet = buildSampleIpv4TcpPacket(dstPort = 853)
+        assertTrue("TCP 853 packet should be detected", DnsPacketParser.isTcpPort853(tcp853Packet))
+
+        val tcp443Packet = buildSampleIpv4TcpPacket(dstPort = 443)
+        org.junit.Assert.assertFalse("TCP 443 packet should not be detected as 853", DnsPacketParser.isTcpPort853(tcp443Packet))
+
+        val udpPacket = buildSampleIpv4UdpPacket(dnsPayload = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
+        org.junit.Assert.assertFalse("UDP packet should not be detected as TCP 853", DnsPacketParser.isTcpPort853(udpPacket))
+
+        org.junit.Assert.assertFalse("Short packet should return false", DnsPacketParser.isTcpPort853(byteArrayOf(1, 2, 3)))
+    }
+
+    private fun buildSampleIpv4TcpPacket(
+        srcIp: ByteArray = byteArrayOf(10, 0, 0, 2),
+        dstIp: ByteArray = byteArrayOf(1, 1, 1, 1),
+        srcPort: Int = 49152,
+        dstPort: Int = 853
+    ): ByteArray {
+        val totalLength = 20 + 20
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0x45, 0x00))
+        out.write(byteArrayOf((totalLength shr 8).toByte(), totalLength.toByte()))
+        out.write(byteArrayOf(0x1a, 0x2b, 0x40, 0x00))
+        out.write(byteArrayOf(64, 6)) // TTL 64, Protocol TCP (6)
+        out.write(byteArrayOf(0x00, 0x00))
+        out.write(srcIp)
+        out.write(dstIp)
+
+        out.write(byteArrayOf((srcPort shr 8).toByte(), srcPort.toByte()))
+        out.write(byteArrayOf((dstPort shr 8).toByte(), dstPort.toByte()))
+        out.write(byteArrayOf(0x00, 0x00, 0x00, 0x01))
+        out.write(byteArrayOf(0x00, 0x00, 0x00, 0x00))
+        out.write(byteArrayOf(0x50, 0x02))
+        out.write(byteArrayOf(0x72, 0x10.toByte()))
+        out.write(byteArrayOf(0x00, 0x00))
+        out.write(byteArrayOf(0x00, 0x00))
+
+        val packet = out.toByteArray()
+        val checksum = DnsPacketParser.computeIpChecksum(packet, 0, 20)
+        packet[10] = (checksum shr 8).toByte()
+        packet[11] = checksum.toByte()
+        return packet
+    }
 }

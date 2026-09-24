@@ -63,6 +63,12 @@ class DnsVpnService : VpnService() {
             blockedDomains: Set<String>,
             upstreamResolver: (ByteArray) -> ByteArray?
         ): ByteArray? {
+            // Drop outbound TCP 853 (DNS-over-TLS / DoT) to trigger graceful fallback to plaintext UDP 53
+            if (DnsPacketParser.isTcpPort853(rawPacket)) {
+                Log.d(TAG, "Dropping outbound TCP 853 (DoT) packet to force plaintext DNS fallback")
+                return null
+            }
+
             val parsed = DnsPacketParser.parseIpPacket(rawPacket) ?: return null
             val query = parsed.query ?: return null
 

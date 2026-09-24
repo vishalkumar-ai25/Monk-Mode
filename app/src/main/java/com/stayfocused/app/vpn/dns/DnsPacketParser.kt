@@ -55,6 +55,25 @@ object DnsPacketParser {
     private const val DNS_HEADER_LEN = 12
 
     /**
+     * Checks if an IPv4 packet is TCP destined for port 853 (DNS-over-TLS / DoT).
+     */
+    fun isTcpPort853(packet: ByteArray): Boolean {
+        if (packet.size < IPV4_HEADER_MIN_LEN + 4) return false
+
+        val version = (packet[0].toInt() and 0xFF) shr 4
+        if (version != 4) return false
+
+        val ihl = (packet[0].toInt() and 0x0F) * 4
+        if (packet.size < ihl + 4) return false
+
+        val protocol = packet[9].toInt() and 0xFF
+        if (protocol != 6) return false // TCP only
+
+        val dstPort = ((packet[ihl + 2].toInt() and 0xFF) shl 8) or (packet[ihl + 3].toInt() and 0xFF)
+        return dstPort == 853
+    }
+
+    /**
      * Parses an IPv4/UDP packet and extracts network endpoints and DNS query payload.
      */
     fun parseIpPacket(packet: ByteArray): ParsedIpPacket? {
