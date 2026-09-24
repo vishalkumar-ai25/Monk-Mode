@@ -312,4 +312,40 @@ class InterceptionDecisionEngineTest {
         )
         assertTrue("Should be allowed at 14:00", result3 is InterceptionResult.Allow)
     }
+
+    @Test
+    fun testBreakSessionAllowsNormallyBlockedApp() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            isBlocked = true
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            isBreakActive = true, // Break active!
+            isStrictModeActive = false
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Break session must allow blocked app", result is InterceptionResult.Allow)
+    }
+
+    @Test
+    fun testBreakSessionIgnoredWhenStrictModeActive() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            isBlocked = true
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            isBreakActive = true, // Break active!
+            isStrictModeActive = true // But strict mode is active!
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Break must be ignored when strict mode is active", result is InterceptionResult.Block)
+    }
 }

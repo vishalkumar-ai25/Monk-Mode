@@ -36,6 +36,11 @@ class InterceptionDecisionEngine {
             return evaluateSettingsTamper(context)
         }
 
+        // Rule 1.5: Temporary Break Session
+        if (context.isBreakActive && !context.isStrictModeActive) {
+            return InterceptionResult.Allow("Temporary break session active")
+        }
+
         // Rule 2: Active Focus Profiles (Manual or Scheduled)
         for (profile in context.activeProfiles) {
             if (isProfileActiveNow(profile, context.currentTimeMillis, context.zoneId)) {

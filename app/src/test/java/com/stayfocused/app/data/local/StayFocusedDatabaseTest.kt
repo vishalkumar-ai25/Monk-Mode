@@ -201,4 +201,75 @@ class StayFocusedDatabaseTest {
         val consumed = dao.getRecoveryCodeSync()
         assertTrue(consumed?.isConsumed == true)
     }
+
+    @Test
+    fun testSuppressedNotificationDaoCrud() = runBlocking {
+        val dao = db.suppressedNotificationDao()
+
+        val item1 = com.stayfocused.app.data.local.entities.SuppressedNotificationEntity(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            title = "New Direct Message",
+            contentSnippet = "Hey, check this reel out!",
+            postTimestamp = 1000L,
+            isViewed = false
+        )
+        val item2 = com.stayfocused.app.data.local.entities.SuppressedNotificationEntity(
+            packageName = "com.twitter.android",
+            appName = "X",
+            title = "Trending Now",
+            contentSnippet = "Breaking news in tech",
+            postTimestamp = 2000L,
+            isViewed = false
+        )
+
+        dao.insert(item1)
+        dao.insert(item2)
+
+        val all = dao.getAll().first()
+        assertEquals(2, all.size)
+        // Ordered by postTimestamp DESC
+        assertEquals("X", all[0].appName)
+        assertEquals("Instagram", all[1].appName)
+
+        val unviewedCount = dao.getUnviewedCount().first()
+        assertEquals(2, unviewedCount)
+
+        dao.markAllAsViewed()
+        val unviewedAfter = dao.getUnviewedCount().first()
+        assertEquals(0, unviewedAfter)
+
+        dao.clearOlderThan(1500L)
+        val remaining = dao.getAll().first()
+        assertEquals(1, remaining.size)
+        assertEquals("X", remaining[0].appName)
+
+        dao.clearAll()
+        val emptyList = dao.getAll().first()
+        assertTrue(emptyList.isEmpty())
+    }
+
+    @Test
+    fun testBreakSessionDaoCrud() = runBlocking {
+        val dao = db.breakSessionDao()
+
+        val session = com.stayfocused.app.data.local.entities.BreakSessionEntity(
+            startTime = 1000L,
+            endTime = 5000L,
+            durationMinutes = 5,
+            isActive = true
+        )
+
+        dao.upsertBreak(session)
+
+        val retrieved = dao.getActiveBreakSync()
+        assertNotNull(retrieved)
+        assertEquals(1000L, retrieved?.startTime)
+        assertEquals(5000L, retrieved?.endTime)
+        assertTrue(retrieved?.isActive == true)
+
+        dao.deactivateBreak()
+        val deactivated = dao.getActiveBreakSync()
+        assertNull(deactivated)
+    }
 }
