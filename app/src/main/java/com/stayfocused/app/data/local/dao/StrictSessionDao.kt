@@ -16,6 +16,9 @@ interface StrictSessionDao {
     @Query("SELECT * FROM strict_sessions WHERE isActive = 1 ORDER BY startTime DESC LIMIT 1")
     suspend fun getActiveStrictSessionSync(): StrictSessionEntity?
 
+    @Query("SELECT * FROM strict_sessions WHERE id = :id")
+    suspend fun getSessionById(id: Long): StrictSessionEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(entity: StrictSessionEntity): Long
 

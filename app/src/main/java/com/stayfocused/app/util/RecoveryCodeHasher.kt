@@ -32,6 +32,18 @@ object RecoveryCodeHasher {
     }
 
     /**
+     * Generates a 16-character high-entropy recovery code formatted as XXXX-XXXX-XXXX-XXXX.
+     */
+    fun generate16CharRecoveryCode(): String {
+        val raw = StringBuilder()
+        for (i in 0 until 16) {
+            val idx = secureRandom.nextInt(CHAR_POOL.size)
+            raw.append(CHAR_POOL[idx])
+        }
+        return raw.chunked(4).joinToString("-")
+    }
+
+    /**
      * Generates a random 16-byte salt encoded as a hex string.
      */
     fun generateSalt(): String {

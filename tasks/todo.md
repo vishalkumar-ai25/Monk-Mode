@@ -27,7 +27,7 @@
 - [x] **Task 4.5**: Phase 4 Definition of Done (DoD) Verification
 
 ## Phase 5: Strict Mode, Failsafes & OEM Survival
-- [ ] **Task 5.1**: Layered Failsafe: Time-Delayed Unlock & Recovery Code
+- [x] **Task 5.1**: Layered Failsafe: Time-Delayed Unlock & Recovery Code
 - [ ] **Task 5.2**: Scoped Boot Grace Period Receiver
 - [ ] **Task 5.3**: DeviceAdminReceiver & Settings App Interception
 - [ ] **Task 5.4**: OEM Survival & ADB Escape Hatch Documentation
