@@ -4,7 +4,7 @@
 - [x] **Task 1.1**: Gradle Build System & Build Variants Configuration
 - [x] **Task 1.2**: Room Database Entities & Post-MVP Schema Stubs
 - [x] **Task 1.3**: Room DAOs & StayFocusedDatabase
-- [ ] **Task 1.4**: Config-Driven OEM & Browser Package Registry
+- [x] **Task 1.4**: Config-Driven OEM & Browser Package Registry
 - [ ] **Task 1.5**: Phase 1 Definition of Done (DoD) Verification
 
 ## Phase 2: Core Interception & WindowManager Overlay

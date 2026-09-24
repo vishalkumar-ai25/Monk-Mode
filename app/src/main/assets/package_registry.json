@@ -1,0 +1,35 @@
+{
+  "browserPackages": [
+    "com.android.chrome",
+    "com.chrome.beta",
+    "com.chrome.dev",
+    "com.chrome.canary",
+    "org.mozilla.firefox",
+    "org.mozilla.firefox_beta",
+    "org.mozilla.fenix",
+    "com.brave.browser",
+    "com.brave.browser_beta",
+    "com.microsoft.emmx",
+    "com.microsoft.emmx.beta",
+    "com.sec.android.app.sbrowser",
+    "com.sec.android.app.sbrowser.beta",
+    "com.opera.browser",
+    "com.opera.mini.native",
+    "com.opera.touch",
+    "com.duckduckgo.mobile.android",
+    "com.vivaldi.browser"
+  ],
+  "settingsPackages": [
+    "com.android.settings",
+    "com.google.android.settings.intelligence",
+    "com.samsung.android.settings",
+    "com.miui.securitycenter",
+    "com.miui.cleanmaster",
+    "com.coloros.safecenter",
+    "com.oplus.safecenter",
+    "com.vivo.permissionmanager",
+    "com.iqoo.secure",
+    "com.android.packageinstaller",
+    "com.google.android.packageinstaller"
+  ]
+}
