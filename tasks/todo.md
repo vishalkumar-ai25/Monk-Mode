@@ -15,7 +15,7 @@
 
 ## Phase 3: Usage Tracking & Exact Midnight Reset
 - [x] **Task 3.1**: UsageStatsTracker Engine
-- [ ] **Task 3.2**: MidnightResetScheduler (Exact Alarms)
+- [x] **Task 3.2**: MidnightResetScheduler (Exact Alarms)
 - [ ] **Task 3.3**: WatchdogWorker & Background Reconciler
 - [ ] **Task 3.4**: Phase 3 Definition of Done (DoD) Verification
 
