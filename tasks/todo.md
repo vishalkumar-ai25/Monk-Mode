@@ -2,7 +2,7 @@
 
 ## Phase 1: Foundation, Build Variants & Room Data Layer
 - [x] **Task 1.1**: Gradle Build System & Build Variants Configuration
-- [ ] **Task 1.2**: Room Database Entities & Post-MVP Schema Stubs
+- [x] **Task 1.2**: Room Database Entities & Post-MVP Schema Stubs
 - [ ] **Task 1.3**: Room DAOs & StayFocusedDatabase
 - [ ] **Task 1.4**: Config-Driven OEM & Browser Package Registry
 - [ ] **Task 1.5**: Phase 1 Definition of Done (DoD) Verification
