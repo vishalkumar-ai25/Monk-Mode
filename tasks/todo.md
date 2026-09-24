@@ -1,7 +1,7 @@
 # Stay Focused: MVP Task Checklist
 
 ## Phase 1: Foundation, Build Variants & Room Data Layer
-- [ ] **Task 1.1**: Gradle Build System & Build Variants Configuration
+- [x] **Task 1.1**: Gradle Build System & Build Variants Configuration
 - [ ] **Task 1.2**: Room Database Entities & Post-MVP Schema Stubs
 - [ ] **Task 1.3**: Room DAOs & StayFocusedDatabase
 - [ ] **Task 1.4**: Config-Driven OEM & Browser Package Registry
