@@ -182,6 +182,25 @@ object DnsPacketParser {
         )
     }
 
+    /**
+     * Wraps a raw DNS response payload in IPv4 and UDP headers directed back to the querying client.
+     */
+    fun wrapDnsResponse(
+        dnsResponsePayload: ByteArray,
+        srcIp: String,
+        dstIp: String,
+        srcPort: Int,
+        dstPort: Int
+    ): ByteArray {
+        return wrapInIpUdp(
+            dnsPayload = dnsResponsePayload,
+            srcIp = parseIpStringToBytes(srcIp),
+            dstIp = parseIpStringToBytes(dstIp),
+            srcPort = srcPort,
+            dstPort = dstPort
+        )
+    }
+
     private fun extractQuestionSection(dnsPayload: ByteArray): ByteArray? {
         if (dnsPayload.size < DNS_HEADER_LEN) return null
         val parsed = parseQName(dnsPayload, DNS_HEADER_LEN) ?: return null

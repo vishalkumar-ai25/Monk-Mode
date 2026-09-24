@@ -49,6 +49,17 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Local DNS Loopback VPN Service for website filtering -->
+        <service
+            android:name=".vpn.DnsVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
         <!-- Midnight exact alarm receiver & boot rescheduler -->
         <receiver
             android:name=".scheduler.MidnightResetReceiver"

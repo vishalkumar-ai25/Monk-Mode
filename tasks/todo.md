@@ -22,7 +22,7 @@
 ## Phase 4: Website Blocking via Local VpnService DNS Proxy
 - [x] **Task 4.1**: Architecture Decision Record ADR 001
 - [x] **Task 4.2**: Pure Kotlin DnsPacketParser (TDD)
-- [ ] **Task 4.3**: Local Loopback DnsVpnService
+- [x] **Task 4.3**: Local Loopback DnsVpnService
 - [ ] **Task 4.4**: Private DNS Handling & TCP 853 Backstop
 - [ ] **Task 4.5**: Phase 4 Definition of Done (DoD) Verification
 
