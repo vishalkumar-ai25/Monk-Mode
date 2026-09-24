@@ -8,7 +8,7 @@
 - [x] **Task 1.5**: Phase 1 Definition of Done (DoD) Verification
 
 ## Phase 2: Core Interception & WindowManager Overlay
-- [ ] **Task 2.1**: Pure Kotlin InterceptionDecisionEngine (TDD)
+- [x] **Task 2.1**: Pure Kotlin InterceptionDecisionEngine (TDD)
 - [ ] **Task 2.2**: WindowManager Floating Block Overlay
 - [ ] **Task 2.3**: FocusAccessibilityService Thin OS Adapter
 - [ ] **Task 2.4**: Phase 2 Definition of Done (DoD) Verification
