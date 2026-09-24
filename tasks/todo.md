@@ -5,7 +5,7 @@
 - [x] **Task 1.2**: Room Database Entities & Post-MVP Schema Stubs
 - [x] **Task 1.3**: Room DAOs & StayFocusedDatabase
 - [x] **Task 1.4**: Config-Driven OEM & Browser Package Registry
-- [ ] **Task 1.5**: Phase 1 Definition of Done (DoD) Verification
+- [x] **Task 1.5**: Phase 1 Definition of Done (DoD) Verification
 
 ## Phase 2: Core Interception & WindowManager Overlay
 - [ ] **Task 2.1**: Pure Kotlin InterceptionDecisionEngine (TDD)
