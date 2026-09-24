@@ -9,6 +9,7 @@ import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.registry.PackageRegistry
 import com.stayfocused.app.domain.InterceptionDecisionEngine
 import com.stayfocused.app.domain.model.AppLimitSnapshot
+import com.stayfocused.app.domain.model.BlockReason
 import com.stayfocused.app.domain.model.FocusProfileRule
 import com.stayfocused.app.domain.model.InterceptionContext
 import com.stayfocused.app.domain.model.InterceptionResult
@@ -43,7 +44,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
     // Boot grace period un-spoofable hardware check
     var isBootGracePeriodProvider: () -> Boolean = {
-        SystemClock.elapsedRealtime() < BOOT_GRACE_PERIOD_MS
+        com.stayfocused.app.strict.GracePeriodManager.isDefaultGracePeriodActive()
     }
 
     // In-memory hot cache for zero-disk-latency interception (< 10ms budget)
@@ -130,6 +131,9 @@ class FocusAccessibilityService : AccessibilityService() {
         when (decision) {
             is InterceptionResult.Block -> {
                 Log.i(TAG, "Blocking package $target: ${decision.reason}")
+                if (decision.reason is BlockReason.SettingsTamper) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
                 val manager = overlayManager
                 if (manager != null && manager.canDrawOverlays()) {
                     manager.showOverlay(
