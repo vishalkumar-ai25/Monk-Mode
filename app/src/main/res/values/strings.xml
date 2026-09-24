@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Stay Focused</string>
+    <string name="accessibility_service_description">Enforces digital wellbeing boundaries by monitoring foreground app packages and displaying block overlays when limits are reached.</string>
+</resources>
