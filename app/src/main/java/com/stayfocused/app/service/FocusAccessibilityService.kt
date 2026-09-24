@@ -12,6 +12,7 @@ import com.stayfocused.app.domain.model.AppLimitSnapshot
 import com.stayfocused.app.domain.model.FocusProfileRule
 import com.stayfocused.app.domain.model.InterceptionContext
 import com.stayfocused.app.domain.model.InterceptionResult
+import com.stayfocused.app.tracker.UsageStatsTracker
 import com.stayfocused.app.ui.overlay.BlockOverlayManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,10 @@ class FocusAccessibilityService : AccessibilityService() {
     var engine: InterceptionDecisionEngine = InterceptionDecisionEngine()
     var overlayManager: BlockOverlayManager? = null
     var packageRegistry: PackageRegistry? = null
+    var usageStatsTracker: UsageStatsTracker? = null
+    var database: StayFocusedDatabase? = null
+
+    private var lastForegroundPackage: String? = null
 
     // Boot grace period un-spoofable hardware check
     var isBootGracePeriodProvider: () -> Boolean = {
@@ -55,6 +60,16 @@ class FocusAccessibilityService : AccessibilityService() {
         }
         if (packageRegistry == null) {
             packageRegistry = PackageRegistry.fromAsset(applicationContext)
+        }
+        if (usageStatsTracker == null) {
+            usageStatsTracker = UsageStatsTracker(applicationContext)
+        }
+        if (database == null) {
+            try {
+                database = StayFocusedDatabase.getInstance(applicationContext)
+            } catch (e: Exception) {
+                Log.w(TAG, "Database not available in this context", e)
+            }
         }
         observeDatabaseState()
     }
@@ -96,6 +111,21 @@ class FocusAccessibilityService : AccessibilityService() {
         )
 
         val decision = engine.evaluate(context)
+
+        // Increment launch counts on package transition
+        if (target != lastForegroundPackage) {
+            lastForegroundPackage = target
+            val db = database
+            if (db != null) {
+                serviceScope.launch {
+                    try {
+                        usageStatsTracker?.recordAppLaunch(target, db.appLimitDao())
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error recording launch for $target", e)
+                    }
+                }
+            }
+        }
 
         when (decision) {
             is InterceptionResult.Block -> {
