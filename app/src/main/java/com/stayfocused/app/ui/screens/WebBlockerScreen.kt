@@ -2,9 +2,11 @@ package com.stayfocused.app.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,12 +41,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.local.entities.BlockedDomainEntity
 import com.stayfocused.app.ui.onboarding.PrivateDnsNoticeHelper
+import com.stayfocused.app.ui.theme.MonkCard
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkEmberDim
+import com.stayfocused.app.ui.theme.MonkInk
+import com.stayfocused.app.ui.theme.MonkLine
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkSage
+import com.stayfocused.app.ui.theme.MonkText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,25 +86,30 @@ fun WebBlockerScreen(
         item {
             Column {
                 Text(
-                    text = "Website Blocker",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
+                    text = "Web Blocker",
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                        color = MonkText
                     )
                 )
                 Text(
-                    text = "Local loopback DNS proxy (10.0.0.2/32) • Zero battery drain • RFC 1035 NXDOMAIN",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
+                    text = "Local DNS proxy  •  10.0.0.2/32  •  RFC 1035 NXDOMAIN",
+                    style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                 )
             }
         }
 
-        // VPN Engine Status Card
+        // VPN Engine Status Card — flat
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isVpnRunning) MonkSage.copy(alpha = 0.08f) else MonkCard
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, if (isVpnRunning) MonkSage.copy(alpha = 0.4f) else MonkLine, RoundedCornerShape(18.dp))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -102,9 +120,9 @@ fun WebBlockerScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(12.dp)
+                                    .size(10.dp)
                                     .background(
-                                        color = if (isVpnRunning) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                        color = if (isVpnRunning) MonkSage else MonkMuted,
                                         shape = CircleShape
                                     )
                             )
@@ -113,14 +131,14 @@ fun WebBlockerScreen(
                                 Text(
                                     text = if (isVpnRunning) "DNS Filtering Active" else "DNS Blocker Paused",
                                     style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MonkText
                                     )
                                 )
                                 Text(
                                     text = if (isVpnRunning) "Narrow route: 10.0.0.2/32 active" else "Tap button to start local proxy",
                                     style = MaterialTheme.typography.bodySmall.copy(
-                                        color = if (isVpnRunning) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                        color = if (isVpnRunning) MonkSage else MonkMuted,
                                         fontSize = 11.sp
                                     )
                                 )
@@ -130,32 +148,34 @@ fun WebBlockerScreen(
                         Button(
                             onClick = onToggleVpn,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isVpnRunning) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary
+                                containerColor = if (isVpnRunning) MonkDanger else MonkEmber,
+                                contentColor = if (isVpnRunning) MonkText else MonkInk
                             ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text(if (isVpnRunning) "Stop Blocker" else "Start Blocker")
+                            Text(if (isVpnRunning) "Stop" else "Start")
                         }
                     }
                 }
             }
         }
 
-        // Quick Category Presets
+        // Quick Category Presets — flat card
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier.border(1.dp, MonkLine, RoundedCornerShape(18.dp))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Quick Presets:",
-                        style = MaterialTheme.typography.labelMedium.copy(
+                        text = "Quick Presets",
+                        style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFCBD5E1)
+                            color = MonkMuted
                         )
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -198,21 +218,22 @@ fun WebBlockerScreen(
             }
         }
 
-        // Add Custom Domain
+        // Add Custom Domain — flat card
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier.border(1.dp, MonkLine, RoundedCornerShape(18.dp))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Add Blocked Website",
+                        text = "Block a Website",
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonkText
                         )
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -221,7 +242,7 @@ fun WebBlockerScreen(
                         OutlinedTextField(
                             value = customDomainInput,
                             onValueChange = { customDomainInput = it },
-                            label = { Text("Domain (e.g. facebook.com)") },
+                            label = { Text("Domain (e.g. facebook.com)", color = MonkMuted) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp)
@@ -234,7 +255,8 @@ fun WebBlockerScreen(
                                     customDomainInput = ""
                                 }
                             },
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk)
                         ) {
                             Text("Block")
                         }
@@ -243,25 +265,27 @@ fun WebBlockerScreen(
             }
         }
 
-        // Private DNS Settings Advisory
+        // Private DNS Advisory — warm amber tone, flat
         item {
             Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF78350F).copy(alpha = 0.3f)),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkEmberDim.copy(alpha = 0.25f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, MonkEmber.copy(alpha = 0.3f), RoundedCornerShape(18.dp))
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
-                        text = "Android Private DNS Advisory",
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFBBF24),
+                        text = "Private DNS Advisory",
+                        fontWeight = FontWeight.SemiBold,
+                        color = MonkEmber,
                         fontSize = 13.sp
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "If Android Private DNS is enabled, encrypted DoT (port 853) may bypass local VPN proxy. For 100% blocking, set Private DNS to 'Off'.",
                         fontSize = 11.sp,
-                        color = Color(0xFFFDE68A)
+                        color = MonkText.copy(alpha = 0.8f)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(
@@ -269,21 +293,23 @@ fun WebBlockerScreen(
                             context.startActivity(PrivateDnsNoticeHelper.createPrivateDnsSettingsIntent())
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MonkEmber.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
                     ) {
-                        Text("Open Android Private DNS Settings", color = Color(0xFFFBBF24), fontSize = 12.sp)
+                        Text("Open Android Private DNS Settings", fontSize = 12.sp)
                     }
                 }
             }
         }
 
-        // Section Title for Blocked Domains
+        // Section title
         item {
             Text(
                 text = "Blocked Domains (${blockedDomains.size})",
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonkText
                 )
             )
         }
@@ -291,9 +317,11 @@ fun WebBlockerScreen(
         if (blockedDomains.isEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkCard),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
                 ) {
                     Column(
                         modifier = Modifier
@@ -303,12 +331,12 @@ fun WebBlockerScreen(
                     ) {
                         Text(
                             text = "No websites blocked yet.",
-                            style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF94A3B8))
+                            style = MaterialTheme.typography.bodyMedium.copy(color = MonkMuted)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Add domains or use quick presets above to block distracting websites.",
-                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF64748B), fontSize = 12.sp)
+                            style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted.copy(alpha = 0.6f), fontSize = 12.sp)
                         )
                     }
                 }
@@ -355,9 +383,11 @@ fun BlockedDomainItemCard(
     onDelete: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-        modifier = Modifier.fillMaxWidth()
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MonkCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
     ) {
         Row(
             modifier = Modifier
@@ -369,14 +399,14 @@ fun BlockedDomainItemCard(
                 Text(
                     text = entity.domain,
                     style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        fontWeight = FontWeight.SemiBold,
+                        color = MonkText
                     )
                 )
                 Text(
-                    text = if (entity.isBlocked) "Blocked (Forged NXDOMAIN / 0.0.0.0)" else "Inactive",
+                    text = if (entity.isBlocked) "Blocked (NXDOMAIN / 0.0.0.0)" else "Inactive",
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = if (entity.isBlocked) Color(0xFFEF4444) else Color(0xFF94A3B8),
+                        color = if (entity.isBlocked) MonkDanger else MonkMuted,
                         fontSize = 11.sp
                     )
                 )
@@ -386,8 +416,12 @@ fun BlockedDomainItemCard(
                 checked = entity.isBlocked,
                 onCheckedChange = onToggleBlocked,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFFEF4444)
+                    checkedThumbColor = MonkText,
+                    checkedTrackColor = MonkEmberDim,
+                    checkedBorderColor = MonkEmber,
+                    uncheckedThumbColor = MonkMuted,
+                    uncheckedTrackColor = MonkCardAlt,
+                    uncheckedBorderColor = MonkLine
                 )
             )
 
@@ -395,9 +429,10 @@ fun BlockedDomainItemCard(
 
             TextButton(
                 onClick = onDelete,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                contentPadding = PaddingValues(horizontal = 4.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MonkMuted)
             ) {
-                Text("✕", color = Color(0xFF94A3B8), fontWeight = FontWeight.Bold)
+                Text("✕", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -413,7 +448,9 @@ private fun PresetDomainButton(
         onClick = onClick,
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+        contentPadding = PaddingValues(vertical = 8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
     ) {
         Text(text = domain, fontSize = 12.sp)
     }

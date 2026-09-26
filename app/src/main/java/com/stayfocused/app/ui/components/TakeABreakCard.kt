@@ -1,6 +1,7 @@
 package com.stayfocused.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,13 +29,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stayfocused.app.breaks.BreakDecisionEngine
 import com.stayfocused.app.data.local.entities.BreakSessionEntity
 import com.stayfocused.app.ui.TimeFormatter
+import com.stayfocused.app.ui.theme.MonkCard
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkLine
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkSage
+import com.stayfocused.app.ui.theme.MonkText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -71,13 +80,15 @@ fun TakeABreakCard(
     val remainingMs = remainingSeconds * 1000L
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isBreakActive) Color(0xFF1E3A8A).copy(alpha = 0.6f) else MaterialTheme.colorScheme.surface
+            containerColor = if (isBreakActive) MonkCardAlt else MonkCard
         ),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .border(width = 1.dp, color = MonkLine, shape = RoundedCornerShape(18.dp))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -88,16 +99,17 @@ fun TakeABreakCard(
                         modifier = Modifier
                             .size(10.dp)
                             .background(
-                                color = if (isBreakActive) Color(0xFF38BDF8) else Color(0xFF94A3B8),
+                                color = if (isBreakActive) MonkEmber else MonkMuted,
                                 shape = CircleShape
                             )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = if (isBreakActive) "Break In Progress" else "Take a Quick Break",
                         style = MaterialTheme.typography.titleMedium.copy(
+                            fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MonkText
                         )
                     )
                 }
@@ -106,8 +118,8 @@ fun TakeABreakCard(
                     Text(
                         text = TimeFormatter.formatRemainingTime(remainingMs),
                         style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF38BDF8)
+                            fontWeight = FontWeight.Bold,
+                            color = MonkEmber
                         )
                     )
                 }
@@ -121,7 +133,7 @@ fun TakeABreakCard(
                 } else {
                     "Need a breather? Temporarily bypass app shields for a limited time (disabled in Strict Mode)."
                 },
-                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
+                style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
             )
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -129,7 +141,10 @@ fun TakeABreakCard(
             if (isBreakActive) {
                 Button(
                     onClick = onEndBreak,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MonkDanger,
+                        contentColor = MonkText
+                    ),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -172,8 +187,9 @@ private fun QuickBreakButton(
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = Color(0xFF38BDF8)
-        )
+            contentColor = MonkEmber
+        ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine)
     ) {
         Text(text = label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
     }

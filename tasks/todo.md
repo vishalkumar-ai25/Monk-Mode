@@ -1,49 +1,33 @@
-# Stay Focused: MVP Task Checklist
+# Tasks: Wave 1 Implementation (Theme, Protection Status Engine & Failsafe Integrity Log)
 
-## Phase 1: Foundation, Build Variants & Room Data Layer
-- [x] **Task 1.1**: Gradle Build System & Build Variants Configuration
-- [x] **Task 1.2**: Room Database Entities & Post-MVP Schema Stubs
-- [x] **Task 1.3**: Room DAOs & StayFocusedDatabase
-- [x] **Task 1.4**: Config-Driven OEM & Browser Package Registry
-- [x] **Task 1.5**: Phase 1 Definition of Done (DoD) Verification
+- [x] **Task 1: Theme & Visual Tokens**
+  - [x] Create `MonkModeTheme.kt` with palette tokens and Material 3 `MonkModeColorScheme`.
+  - [x] Apply `MonkModeTheme` in `MainActivity.kt`.
+  - [x] Reskin core components: `DailyUsageDial.kt`, `TakeABreakCard.kt`.
 
-## Phase 2: Core Interception & WindowManager Overlay
-- [x] **Task 2.1**: Pure Kotlin InterceptionDecisionEngine (TDD)
-- [x] **Task 2.2**: WindowManager Floating Block Overlay
-- [x] **Task 2.3**: FocusAccessibilityService Thin OS Adapter
-- [x] **Task 2.4**: Phase 2 Definition of Done (DoD) Verification
+- [x] **Task 2: Failsafe Integrity Log & Room Migration (Phase 15)**
+  - [x] Create `FailsafeLogEntity.kt` and `FailsafeEventType` enum.
+  - [x] Create `FailsafeLogDao.kt` (append-only contract).
+  - [x] Update `StayFocusedDatabase.kt` to version 3 with `MIGRATION_2_3`.
+  - [x] Implement `StayFocusedDatabaseMigrationTest.kt` for v2 -> v3.
+  - [x] Write `FailsafeLogDaoTest.kt`.
+  - [x] Instrument `FailsafeManager.kt` with logging.
+  - [x] Instrument `BootCompletedReceiver.kt` with boot grace logging.
+  - [x] Create `FailsafeLogFormatter.kt` and `FailsafeLogFormatterTest.kt`.
+  - [x] Create `FailsafeLogCard.kt` and embed into `StrictLockScreen.kt`.
 
-## Phase 3: Usage Tracking & Exact Midnight Reset
-- [x] **Task 3.1**: UsageStatsTracker Engine
-- [x] **Task 3.2**: MidnightResetScheduler (Exact Alarms)
-- [x] **Task 3.3**: WatchdogWorker & Background Reconciler
-- [x] **Task 3.4**: Phase 3 Definition of Done (DoD) Verification
+- [x] **Task 3: Protection Status Engine & Watchdog Health Alerts (Phase 8)**
+  - [x] Create `ProtectionModels.kt` domain models.
+  - [x] Create pure Kotlin `ProtectionStatusEngine.kt`.
+  - [x] Write unit tests in `ProtectionStatusEngineTest.kt`.
+  - [x] Create `ProtectionPreferences.kt`.
+  - [x] Create `ProtectionHealthChecker.kt`.
+  - [x] Update `WatchdogWorker.kt` to evaluate health and post RED alert notification.
+  - [x] Write `WatchdogWorkerTest.kt`.
+  - [x] Create `ProtectionStatusCard.kt` and embed into `DashboardScreen.kt`.
 
-## Phase 4: Website Blocking via Local VpnService DNS Proxy
-- [x] **Task 4.1**: Architecture Decision Record ADR 001
-- [x] **Task 4.2**: Pure Kotlin DnsPacketParser (TDD)
-- [x] **Task 4.3**: Local Loopback DnsVpnService
-- [x] **Task 4.4**: Private DNS Handling & TCP 853 Backstop
-- [x] **Task 4.5**: Phase 4 Definition of Done (DoD) Verification
-
-## Phase 5: Strict Mode, Failsafes & OEM Survival
-- [x] **Task 5.1**: Layered Failsafe: Time-Delayed Unlock & Recovery Code
-- [x] **Task 5.2**: Scoped Boot Grace Period Receiver
-- [x] **Task 5.3**: DeviceAdminReceiver & Settings App Interception
-- [x] **Task 5.4**: OEM Survival & ADB Escape Hatch Documentation
-- [x] **Task 5.5**: Phase 5 Definition of Done (DoD) Verification
-
-## Phase 6: Distraction Defense & Quick Breaks (Commercial Parity)
-- [x] **Task 6.1**: Notification Interception Engine & Room Storage (TDD)
-- [x] **Task 6.2**: FocusNotificationListenerService OS Adapter
-- [x] **Task 6.3**: Break Engine & Interception Bypass (TDD)
-- [x] **Task 6.4**: Quick Settings Tile (TakeABreakTileService)
-- [x] **Task 6.5**: Phase 6 Definition of Done (DoD) Verification
-
-## Phase 7: Production-Grade Jetpack Compose UI (Commercial Parity)
-- [x] **Task 7.1**: UI Navigation Framework & App Tabs
-- [x] **Task 7.2**: Daily Usage Dial & Take a Break Card (Dashboard)
-- [x] **Task 7.3**: Notification History Vault Screen
-- [x] **Task 7.4**: App Limits Manager with Async Icon Loading
-- [x] **Task 7.5**: Phase 7 Definition of Done (DoD) Verification
-
+- [x] **Task 4: Full App Reskin & Quality Verification**
+  - [x] Reskin `AppLimitsScreen.kt`, `WebBlockerScreen.kt`, and `NotificationVaultScreen.kt`.
+  - [x] Run full unit test suite `./gradlew testDebugUnitTest` (100% pass).
+  - [x] Assemble debug APK `./gradlew assembleDebug` (Build successful).
+  - [ ] Physical device verification (Device disconnected).

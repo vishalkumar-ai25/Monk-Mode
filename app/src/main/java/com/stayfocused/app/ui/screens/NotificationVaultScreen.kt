@@ -2,9 +2,11 @@ package com.stayfocused.app.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,12 +39,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.local.entities.SuppressedNotificationEntity
 import com.stayfocused.app.ui.TimeFormatter
+import com.stayfocused.app.ui.theme.MonkCard
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkInk
+import com.stayfocused.app.ui.theme.MonkLine
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -94,28 +105,29 @@ fun NotificationVaultScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Notification Vault",
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
+                            text = "Vault",
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold,
+                                color = MonkText
                             )
                         )
                         Text(
                             text = "Silenced distractions saved safely for later review",
-                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
+                            style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                         )
                     }
 
                     if (unviewedCount > 0) {
                         Box(
                             modifier = Modifier
-                                .background(Color(0xFF38BDF8), RoundedCornerShape(12.dp))
+                                .background(MonkEmber, RoundedCornerShape(12.dp))
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "$unviewedCount new",
-                                color = Color(0xFF0F172A),
+                                color = MonkInk,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 12.sp
                             )
@@ -125,25 +137,28 @@ fun NotificationVaultScreen(
             }
         }
 
+        // Permission Warning — flat card with ember-tinted background
         if (!isNotificationAccessGranted) {
             item {
                 Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF78350F).copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkEmber.copy(alpha = 0.08f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MonkEmber.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
                             text = "Notification Access Required",
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFBBF24),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonkEmber,
                             fontSize = 13.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "To silence distracting notifications and log them to this vault, grant Notification Listener permission.",
                             fontSize = 11.sp,
-                            color = Color(0xFFFDE68A)
+                            color = MonkText.copy(alpha = 0.8f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedButton(
@@ -153,16 +168,18 @@ fun NotificationVaultScreen(
                                 })
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MonkEmber.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
                         ) {
-                            Text("Enable in Notification Listener Settings", color = Color(0xFFFBBF24), fontSize = 12.sp)
+                            Text("Enable Notification Listener", fontSize = 12.sp)
                         }
                     }
                 }
             }
         }
 
-        // Action Buttons Row (Mark All Read & Clear)
+        // Action Buttons Row
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -179,7 +196,13 @@ fun NotificationVaultScreen(
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
-                    enabled = unviewedCount > 0
+                    enabled = unviewedCount > 0,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MonkEmber,
+                        contentColor = MonkInk,
+                        disabledContainerColor = MonkCardAlt,
+                        disabledContentColor = MonkMuted
+                    )
                 ) {
                     Text("Mark All Read", fontSize = 13.sp)
                 }
@@ -195,7 +218,8 @@ fun NotificationVaultScreen(
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MonkDanger.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkDanger),
                     enabled = notifications.isNotEmpty()
                 ) {
                     Text("Clear All", fontSize = 13.sp)
@@ -208,20 +232,22 @@ fun NotificationVaultScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                label = { Text("Filter notifications by title or app") },
+                label = { Text("Filter by title or app", color = MonkMuted) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 shape = RoundedCornerShape(10.dp)
             )
         }
 
-        // Feed items or Empty State
+        // Notification Feed or Empty State
         if (filteredNotifications.isEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkCard),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
                 ) {
                     Column(
                         modifier = Modifier
@@ -231,18 +257,19 @@ fun NotificationVaultScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(56.dp)
-                                .background(Color(0xFF334155), CircleShape),
+                                .size(52.dp)
+                                .background(MonkCardAlt, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("🔔", fontSize = 24.sp)
+                            Text("🔔", fontSize = 22.sp)
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = if (searchQuery.isNotBlank()) "No matching notifications" else "Vault is Clean",
                             style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MonkText
                             )
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -253,7 +280,7 @@ fun NotificationVaultScreen(
                                 "Distracting notifications intercepted during active focus sessions will be safely preserved here."
                             },
                             style = MaterialTheme.typography.bodySmall.copy(
-                                color = Color(0xFF94A3B8),
+                                color = MonkMuted,
                                 fontSize = 12.sp
                             ),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -278,11 +305,17 @@ fun SuppressedNotificationItemCard(
     notification: SuppressedNotificationEntity
 ) {
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (!notification.isViewed) Color(0xFF1E293B) else Color(0xFF0F172A)
+            containerColor = if (!notification.isViewed) MonkCard else MonkCardAlt.copy(alpha = 0.5f)
         ),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (!notification.isViewed) MonkLine else MonkLine.copy(alpha = 0.4f),
+                RoundedCornerShape(18.dp)
+            )
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -297,16 +330,16 @@ fun SuppressedNotificationItemCard(
                     if (!notification.isViewed) {
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
-                                .background(Color(0xFF38BDF8), CircleShape)
+                                .size(7.dp)
+                                .background(MonkEmber, CircleShape)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                     }
                     Text(
                         text = notification.appName.ifBlank { notification.packageName.substringAfterLast(".") },
                         style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF38BDF8)
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonkEmber
                         )
                     )
                 }
@@ -314,7 +347,7 @@ fun SuppressedNotificationItemCard(
                 Text(
                     text = TimeFormatter.formatTimeAgo(notification.postTimestamp),
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = Color(0xFF64748B),
+                        color = MonkMuted,
                         fontSize = 11.sp
                     )
                 )
@@ -327,7 +360,7 @@ fun SuppressedNotificationItemCard(
                     text = notification.title,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = MonkText
                     )
                 )
                 Spacer(modifier = Modifier.height(2.dp))
@@ -337,7 +370,7 @@ fun SuppressedNotificationItemCard(
                 Text(
                     text = notification.contentSnippet,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = Color(0xFFCBD5E1),
+                        color = MonkMuted,
                         fontSize = 12.sp
                     ),
                     maxLines = 2

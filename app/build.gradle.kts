@@ -73,6 +73,18 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
+    sourceSets {
+        getByName("debug").assets.srcDirs("$projectDir/schemas")
+        getByName("release").assets.srcDir("$projectDir/schemas")
+        getByName("test").assets.srcDirs("$projectDir/schemas")
+    }
 }
 
 ksp {
@@ -108,6 +120,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.test.ext.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }

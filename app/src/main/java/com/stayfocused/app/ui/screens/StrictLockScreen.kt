@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -37,7 +39,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +47,17 @@ import androidx.compose.ui.unit.sp
 import com.stayfocused.app.BuildConfig
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.strict.FailsafeManager
+import com.stayfocused.app.ui.components.FailsafeLogCard
+import com.stayfocused.app.ui.theme.MonkCard
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkEmberDim
+import com.stayfocused.app.ui.theme.MonkInk
+import com.stayfocused.app.ui.theme.MonkLine
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkSage
+import com.stayfocused.app.ui.theme.MonkText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,6 +72,7 @@ fun StrictLockScreen(
     val scope = rememberCoroutineScope()
 
     val activeStrictSession by database.strictSessionDao().getActiveStrictSession().collectAsState(initial = null)
+    val failsafeLogs by database.failsafeLogDao().getAllLogs().collectAsState(initial = emptyList())
     var generatedRecoveryCode by remember { mutableStateOf<String?>(null) }
     var enteredRecoveryCode by remember { mutableStateOf("") }
 
@@ -75,13 +88,14 @@ fun StrictLockScreen(
                 Text(
                     text = "Strict Mode & Failsafes",
                     style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                        color = MonkText
                     )
                 )
                 Text(
                     text = "Irreversible anti-tamper controls with multi-tiered emergency safety valves",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
+                    style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                 )
             }
         }
@@ -89,11 +103,13 @@ fun StrictLockScreen(
         // Anti-Tamper Status Card
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(width = 1.dp, color = MonkLine, shape = RoundedCornerShape(18.dp))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -102,19 +118,19 @@ fun StrictLockScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(12.dp)
+                                    .size(10.dp)
                                     .background(
-                                        color = if (BuildConfig.ANTI_TAMPER_ENABLED) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                        color = if (BuildConfig.ANTI_TAMPER_ENABLED) MonkSage else MonkEmber,
                                         shape = CircleShape
                                     )
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
                                     text = if (BuildConfig.ANTI_TAMPER_ENABLED) "Anti-Tamper: ACTIVE" else "Anti-Tamper: DEV RELAXED",
                                     style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MonkText
                                     )
                                 )
                                 Text(
@@ -123,7 +139,7 @@ fun StrictLockScreen(
                                     } else {
                                         "Debug Build: Safe dev mode (Settings interception logs without lockout)"
                                     },
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                    style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 11.sp)
                                 )
                             }
                         }
@@ -132,163 +148,225 @@ fun StrictLockScreen(
             }
         }
 
-        // Layer 1: Time-Delayed Unlock
+        // Failsafe Architecture Card — All 4 layers cleanly organized inside 1 card
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(width = 1.dp, color = MonkLine, shape = RoundedCornerShape(18.dp))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp)
+                ) {
                     Text(
-                        text = "Layer 1: 24–48h Time-Delayed Unlock",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        text = "Defense-in-Depth Safety Valves",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            color = MonkText
+                        )
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Prevents impulse disabling. Once requested, a 24-hour waiting period begins before locks can be modified or deactivated.",
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (activeStrictSession != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF0F172A), RoundedCornerShape(10.dp))
-                                .padding(12.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Strict Session Active",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFEF4444)
-                                )
-                                Text(
-                                    text = "Ends at: ${java.util.Date(activeStrictSession!!.targetEndTime)}",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF94A3B8)
-                                )
-                            }
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                Toast.makeText(context, "No active strict session currently needs unlock.", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                        ) {
-                            Text("Request Delayed Unlock")
-                        }
-                    }
-                }
-            }
-        }
-
-        // Layer 2: Emergency Recovery Code
-        item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Layer 2: Emergency Recovery Code",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Generates a single-use 16-character emergency code (PBKDF2/SHA-256 hashed). Can be used to immediately cancel strict sessions.",
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
+                        text = "Pre-configured override channels to guarantee you are never irreversibly trapped.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    Button(
-                        onClick = {
-                            scope.launch(Dispatchers.IO) {
-                                val code = failsafeManager.generateAndStoreRecoveryCode()
-                                withContext(Dispatchers.Main) {
-                                    generatedRecoveryCode = code
+                    // Layer 1: Time-Delayed Unlock
+                    FailsafeLayerRow(
+                        numeral = "1",
+                        title = "Time-Delayed Unlock",
+                        description = "Mandatory 24–48 hour cooldown. Prevents dopamine-driven impulsive disarming while ensuring deliberate escape."
+                    ) {
+                        val session = activeStrictSession
+                        if (session != null && session.isActive) {
+                            val isPending = failsafeManager.isUnlockPending(session)
+                            if (isPending) {
+                                val remainingMs = failsafeManager.getRemainingDelayMs(session)
+                                val remainingHours = remainingMs / (1000 * 3600)
+                                val remainingMinutes = (remainingMs % (1000 * 3600)) / (1000 * 60)
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MonkCardAlt, RoundedCornerShape(12.dp))
+                                        .border(1.dp, MonkLine, RoundedCornerShape(12.dp))
+                                        .padding(14.dp)
+                                ) {
+                                    Text(
+                                        text = "Unlock Pending",
+                                        fontWeight = FontWeight.Bold,
+                                        color = MonkEmber,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "Cooldown completes in: ${remainingHours}h ${remainingMinutes}m",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    val success = failsafeManager.tryFinalizeDelayedUnlock(session.id)
+                                                    withContext(Dispatchers.Main) {
+                                                        if (success) {
+                                                            Toast.makeText(context, "Delayed unlock completed!", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            Toast.makeText(context, "Cooldown time has not elapsed yet.", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk)
+                                        ) {
+                                            Text("Finalize Unlock")
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    failsafeManager.cancelDelayedUnlock(session.id)
+                                                    withContext(Dispatchers.Main) {
+                                                        Toast.makeText(context, "Unlock request cancelled.", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MonkDanger, contentColor = MonkText)
+                                        ) {
+                                            Text("Cancel Request")
+                                        }
+                                    }
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        scope.launch(Dispatchers.IO) {
+                                            failsafeManager.requestDelayedUnlock(session.id)
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "24-hour delayed unlock initiated.", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MonkEmberDim, contentColor = MonkText)
+                                ) {
+                                    Text("Request 24h Delayed Unlock")
                                 }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Generate New Recovery Code")
+                        } else {
+                            Text(
+                                text = "Strict session inactive. Arm a session to activate.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 12.sp)
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MonkLine)
 
-                    // Input to redeem code
-                    Text(
-                        text = "Redeem Emergency Code:",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFCBD5E1)
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    // Layer 2: Emergency Recovery Code
+                    FailsafeLayerRow(
+                        numeral = "2",
+                        title = "Emergency Recovery Code",
+                        description = "Single-use 16-character cryptographic recovery code. Generates once; store in a password manager or physical vault."
                     ) {
-                        OutlinedTextField(
-                            value = enteredRecoveryCode,
-                            onValueChange = { enteredRecoveryCode = it },
-                            label = { Text("Enter 16-character code") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            shape = RoundedCornerShape(10.dp)
-                        )
                         Button(
                             onClick = {
                                 scope.launch(Dispatchers.IO) {
-                                    val success = failsafeManager.verifyAndConsumeRecoveryCode(enteredRecoveryCode.trim())
+                                    val code = failsafeManager.generateAndStoreRecoveryCode()
                                     withContext(Dispatchers.Main) {
-                                        if (success) {
-                                            enteredRecoveryCode = ""
-                                            Toast.makeText(context, "Recovery code accepted! Strict locks released.", Toast.LENGTH_LONG).show()
-                                        } else {
-                                            Toast.makeText(context, "Invalid or already used recovery code.", Toast.LENGTH_SHORT).show()
-                                        }
+                                        generatedRecoveryCode = code
                                     }
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                            colors = ButtonDefaults.buttonColors(containerColor = MonkCardAlt, contentColor = MonkText)
                         ) {
-                            Text("Redeem")
+                            Text("Generate New Code")
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = enteredRecoveryCode,
+                                onValueChange = { enteredRecoveryCode = it },
+                                label = { Text("Enter 16-character code", color = MonkMuted) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            Button(
+                                onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        val success = failsafeManager.verifyAndConsumeRecoveryCode(enteredRecoveryCode.trim())
+                                        withContext(Dispatchers.Main) {
+                                            if (success) {
+                                                enteredRecoveryCode = ""
+                                                Toast.makeText(context, "Recovery code accepted! Strict locks released.", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(context, "Invalid or already used recovery code.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MonkSage, contentColor = MonkInk)
+                            ) {
+                                Text("Redeem")
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MonkLine)
+
+                    // Layer 3: Boot Grace Period
+                    FailsafeLayerRow(
+                        numeral = "3",
+                        title = "Scoped Boot Grace Period",
+                        description = "For 3–5 minutes after device restart, Settings-blocking and Device Admin lockout are suspended ONLY. All app and website blocking rules remain armed during reboot."
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MonkLine)
+
+                    // Layer 4: ADB Escape Hatch
+                    FailsafeLayerRow(
+                        numeral = "4",
+                        title = "Developer ADB Escape Hatch",
+                        description = "Last-resort developer path via ADB commands. Documented in README."
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MonkCardAlt, RoundedCornerShape(10.dp))
+                                .border(1.dp, MonkLine, RoundedCornerShape(10.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = "adb shell pm disable-user --user 0 com.stayfocused.app",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = MonkMuted
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Layer 3: Boot Grace Period Advisory
+        // Failsafe Integrity Audit Log Card
         item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Layer 3: Scoped Boot Grace Period",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "For 3–5 minutes after device restart, Settings-blocking and Device Admin lockout are temporarily suspended so you can reconfigure system settings if needed. All app and website blocking rules remain armed during reboot.",
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
-                    )
-                }
-            }
+            FailsafeLogCard(logs = failsafeLogs)
         }
 
         item {
@@ -296,19 +374,31 @@ fun StrictLockScreen(
         }
     }
 
-    // Recovery Code Dialog
+    // Recovery Code Dialog — styled with Monk tokens
     if (generatedRecoveryCode != null) {
         AlertDialog(
             onDismissRequest = { generatedRecoveryCode = null },
-            title = { Text("Emergency Recovery Code") },
+            containerColor = MonkCard,
+            title = {
+                Text(
+                    "Emergency Recovery Code",
+                    color = MonkText,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 Column {
-                    Text("Save this 16-character code in a secure physical location. It will never be displayed again:")
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Save this 16-character code in a secure physical location. It will never be displayed again:",
+                        color = MonkMuted
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                            .background(MonkCardAlt, RoundedCornerShape(10.dp))
+                            .border(1.dp, MonkEmber.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                             .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -316,9 +406,9 @@ fun StrictLockScreen(
                         Text(
                             text = formatted,
                             fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = Color(0xFF38BDF8)
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 22.sp,
+                            color = MonkEmber
                         )
                     }
                 }
@@ -331,16 +421,74 @@ fun StrictLockScreen(
                         clipboard.setPrimaryClip(clip)
                         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                         generatedRecoveryCode = null
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk)
                 ) {
                     Text("Copy & Close")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { generatedRecoveryCode = null }) {
+                TextButton(
+                    onClick = { generatedRecoveryCode = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonkMuted)
+                ) {
                     Text("Close")
                 }
             }
         )
+    }
+}
+
+/**
+ * Single flat row for a failsafe layer.
+ * Uses a small serif numeral on the left, title + description on the right,
+ * with an optional content slot for action widgets.
+ */
+@Composable
+private fun FailsafeLayerRow(
+    numeral: String,
+    title: String,
+    description: String,
+    content: (@Composable () -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Serif numeral
+        Text(
+            text = numeral,
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 22.sp,
+            color = MonkEmber,
+            modifier = Modifier
+                .width(32.dp)
+                .padding(top = 2.dp)
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonkText
+                )
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = MonkMuted,
+                    lineHeight = 18.sp
+                )
+            )
+            if (content != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                content()
+            }
+        }
     }
 }

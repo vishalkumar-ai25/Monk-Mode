@@ -24,6 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stayfocused.app.ui.ProgressTier
 import com.stayfocused.app.ui.UsageDialHelper
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkSage
+import com.stayfocused.app.ui.theme.MonkText
 
 @Composable
 fun DailyUsageDial(
@@ -40,11 +46,12 @@ fun DailyUsageDial(
         label = "progressAnimation"
     )
 
+    // Monk Mode 3-tier color logic: sage (<70%) → ember (70–90%) → danger (>90%)
     val tier = UsageDialHelper.getProgressTier(progress)
     val targetColor = when (tier) {
-        ProgressTier.NORMAL -> Color(0xFF10B981) // Emerald Green
-        ProgressTier.WARNING -> Color(0xFFF59E0B) // Amber
-        ProgressTier.CRITICAL -> Color(0xFFEF4444) // Rose Red
+        ProgressTier.NORMAL -> MonkSage
+        ProgressTier.WARNING -> MonkEmber
+        ProgressTier.CRITICAL -> MonkDanger
     }
 
     val animatedColor by animateColorAsState(
@@ -62,9 +69,9 @@ fun DailyUsageDial(
             val canvasSize = size.toPx() - strokePx
             val topLeftOffset = strokePx / 2f
 
-            // Background circle track
+            // Track circle: cardAlt color (no shadow, flat aesthetic)
             drawArc(
-                color = Color(0xFF334155),
+                color = MonkCardAlt,
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -92,14 +99,14 @@ fun DailyUsageDial(
                 text = UsageDialHelper.formatDuration(usedMinutes),
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color.White
+                    color = MonkText
                 )
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "of ${UsageDialHelper.formatDuration(targetMinutes)} target",
                 style = MaterialTheme.typography.bodySmall.copy(
-                    color = Color(0xFF94A3B8),
+                    color = MonkMuted,
                     fontSize = 12.sp
                 )
             )

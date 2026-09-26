@@ -10,9 +10,11 @@ import android.graphics.drawable.Drawable
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,7 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -56,11 +58,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.local.entities.AppLimitEntity
+import com.stayfocused.app.ui.theme.MonkCard
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkEmberDim
+import com.stayfocused.app.ui.theme.MonkInk
+import com.stayfocused.app.ui.theme.MonkLine
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkSage
+import com.stayfocused.app.ui.theme.MonkText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -115,34 +128,36 @@ fun AppLimitsScreen(
         item {
             Column {
                 Text(
-                    text = "App Limits & Shields",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
+                    text = "App Limits",
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                        color = MonkText
                     )
                 )
                 Text(
-                    text = "Sub-10ms foreground interception & daily screen time boundaries",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
+                    text = "Sub-10ms interception  •  daily screen time boundaries",
+                    style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                 )
             }
         }
 
-        // Quick Presets
+        // Quick Presets — flat card, no nested disclosure
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier.border(1.dp, MonkLine, RoundedCornerShape(18.dp))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Quick Presets:",
-                        style = MaterialTheme.typography.labelMedium.copy(
+                        text = "Quick Presets",
+                        style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFCBD5E1)
+                            color = MonkMuted
                         )
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -206,25 +221,26 @@ fun AppLimitsScreen(
             }
         }
 
-        // Search Bar & Installed App Picker
+        // Search Bar & Installed App Picker — flat card
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier.border(1.dp, MonkLine, RoundedCornerShape(18.dp))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "Add Application",
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonkText
                         )
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        label = { Text("Search installed apps (e.g. YouTube, Chrome)") },
+                        label = { Text("Search installed apps (e.g. YouTube, Chrome)", color = MonkMuted) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp)
@@ -247,7 +263,7 @@ fun AppLimitsScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(Color(0xFF0F172A), RoundedCornerShape(10.dp))
+                                        .background(MonkCardAlt, RoundedCornerShape(10.dp))
                                         .padding(horizontal = 12.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
@@ -262,12 +278,12 @@ fun AppLimitsScreen(
                                             Text(
                                                 text = appItem.appName,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = Color.White
+                                                color = MonkText
                                             )
                                             Text(
                                                 text = appItem.packageName,
                                                 fontSize = 11.sp,
-                                                color = Color(0xFF94A3B8)
+                                                color = MonkMuted
                                             )
                                         }
                                     }
@@ -289,8 +305,14 @@ fun AppLimitsScreen(
                                             }
                                         },
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                        enabled = !isAlreadyAdded
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        enabled = !isAlreadyAdded,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MonkEmber,
+                                            contentColor = MonkInk,
+                                            disabledContainerColor = MonkCardAlt,
+                                            disabledContentColor = MonkMuted
+                                        )
                                     ) {
                                         Text(if (isAlreadyAdded) "Configured" else "Shield", fontSize = 12.sp)
                                     }
@@ -302,7 +324,7 @@ fun AppLimitsScreen(
             }
         }
 
-        // Section Title for Active Limits
+        // Section Title
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -310,22 +332,24 @@ fun AppLimitsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Configured Apps (${appLimits.size})",
+                    text = "Configured (${appLimits.size})",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        fontWeight = FontWeight.SemiBold,
+                        color = MonkText
                     )
                 )
             }
         }
 
-        // Configured App Limit Cards
+        // Configured App Limit Cards — flat, one per app
         if (appLimits.isEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkCard),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
                 ) {
                     Column(
                         modifier = Modifier
@@ -335,12 +359,12 @@ fun AppLimitsScreen(
                     ) {
                         Text(
                             text = "No apps configured yet.",
-                            style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF94A3B8))
+                            style = MaterialTheme.typography.bodyMedium.copy(color = MonkMuted)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Search and add apps above to set time boundaries or shields.",
-                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF64748B), fontSize = 12.sp)
+                            style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted.copy(alpha = 0.6f), fontSize = 12.sp)
                         )
                     }
                 }
@@ -406,24 +430,37 @@ fun AppLimitsScreen(
 
         AlertDialog(
             onDismissRequest = { editingAppLimit = null },
-            title = { Text("Configure Limits for ${target.appName}") },
+            containerColor = MonkCard,
+            title = {
+                Text(
+                    "Configure  ${target.appName}",
+                    color = MonkText,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 Column {
                     Text(
                         text = "Daily Screen Time: ${minutesLimit.toInt()} minutes",
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = MonkText
                     )
                     Text(
                         text = if (minutesLimit.toInt() == 0) "No time limit (Block only)" else "Shield triggers once exceeded",
                         fontSize = 11.sp,
-                        color = Color(0xFF94A3B8)
+                        color = MonkMuted
                     )
                     Slider(
                         value = minutesLimit,
                         onValueChange = { minutesLimit = it },
                         valueRange = 0f..180f,
-                        steps = 11 // 15m increments
+                        steps = 11,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MonkEmber,
+                            activeTrackColor = MonkEmber,
+                            inactiveTrackColor = MonkCardAlt
+                        )
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -431,18 +468,23 @@ fun AppLimitsScreen(
                     Text(
                         text = "Daily Launches: ${launchLimit.toInt()} times",
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = MonkText
                     )
                     Text(
                         text = if (launchLimit.toInt() == 0) "No launch limit" else "Shield triggers on ${launchLimit.toInt() + 1}th launch",
                         fontSize = 11.sp,
-                        color = Color(0xFF94A3B8)
+                        color = MonkMuted
                     )
                     Slider(
                         value = launchLimit,
                         onValueChange = { launchLimit = it },
                         valueRange = 0f..30f,
-                        steps = 5 // 5 launch increments
+                        steps = 5,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MonkEmber,
+                            activeTrackColor = MonkEmber,
+                            inactiveTrackColor = MonkCardAlt
+                        )
                     )
                 }
             },
@@ -461,13 +503,17 @@ fun AppLimitsScreen(
                                 Toast.makeText(context, "Saved limits for ${target.appName}", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk)
                 ) {
                     Text("Save")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { editingAppLimit = null }) {
+                TextButton(
+                    onClick = { editingAppLimit = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonkMuted)
+                ) {
                     Text("Cancel")
                 }
             }
@@ -483,10 +529,13 @@ fun AppLimitItemCard(
     onTestLaunch: () -> Unit,
     onDelete: () -> Unit
 ) {
+    // Single flat card — no nested accordions
     Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-        modifier = Modifier.fillMaxWidth()
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MonkCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -501,8 +550,8 @@ fun AppLimitItemCard(
                     Text(
                         text = entity.appName.ifBlank { entity.packageName },
                         style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonkText
                         )
                     )
                     val usedMin = entity.currentDayUsageMs / (60 * 1000L)
@@ -516,17 +565,19 @@ fun AppLimitItemCard(
                     Text(
                         text = limitText,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = if (entity.isBlocked) Color(0xFFEF4444) else Color(0xFF94A3B8),
+                            color = if (entity.isBlocked) MonkDanger else MonkMuted,
                             fontSize = 11.sp
                         )
                     )
                 }
 
-                // Test Shield Button
+                // Test Shield
                 OutlinedButton(
                     onClick = onTestLaunch,
                     shape = RoundedCornerShape(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkMuted)
                 ) {
                     Text("Test", fontSize = 11.sp)
                 }
@@ -537,15 +588,19 @@ fun AppLimitItemCard(
                     checked = entity.isBlocked,
                     onCheckedChange = onToggleBlocked,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFFEF4444)
+                        checkedThumbColor = MonkText,
+                        checkedTrackColor = MonkEmberDim,
+                        checkedBorderColor = MonkEmber,
+                        uncheckedThumbColor = MonkMuted,
+                        uncheckedTrackColor = MonkCardAlt,
+                        uncheckedBorderColor = MonkLine
                     )
                 )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Limit details and Action Row
+            // Flat detail row — launches + action links
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -554,22 +609,24 @@ fun AppLimitItemCard(
                 Text(
                     text = "Launches today: ${entity.currentDayLaunches}${if (entity.dailyLaunchLimit > 0) "/${entity.dailyLaunchLimit}" else ""}",
                     fontSize = 11.sp,
-                    color = Color(0xFF64748B)
+                    color = MonkMuted
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(
                         onClick = onEditLimits,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonkEmber)
                     ) {
-                        Text("Set Limits", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                        Text("Set Limits", fontSize = 11.sp)
                     }
 
                     TextButton(
                         onClick = onDelete,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonkMuted)
                     ) {
-                        Text("✕", color = Color(0xFF94A3B8), fontWeight = FontWeight.Bold)
+                        Text("✕", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -614,12 +671,12 @@ fun AppIconImage(
         Box(
             modifier = Modifier
                 .size(size.dp)
-                .background(Color(0xFF334155), CircleShape),
+                .background(MonkCardAlt, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = packageName.take(1).uppercase(),
-                color = Color.White,
+                color = MonkMuted,
                 fontWeight = FontWeight.Bold,
                 fontSize = (size / 2.5).sp
             )
@@ -650,7 +707,9 @@ private fun PresetButton(
         onClick = onClick,
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+        contentPadding = PaddingValues(vertical = 8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
     ) {
         Text(text = text, fontSize = 12.sp)
     }

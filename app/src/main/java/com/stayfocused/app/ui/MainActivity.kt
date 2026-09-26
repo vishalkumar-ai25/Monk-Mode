@@ -27,7 +27,6 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -35,9 +34,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -48,7 +47,14 @@ import com.stayfocused.app.ui.screens.DashboardScreen
 import com.stayfocused.app.ui.screens.NotificationVaultScreen
 import com.stayfocused.app.ui.screens.StrictLockScreen
 import com.stayfocused.app.ui.screens.WebBlockerScreen
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkInk
+import com.stayfocused.app.ui.theme.MonkModeColorScheme
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkPanel
 import com.stayfocused.app.vpn.DnsVpnService
+import com.stayfocused.app.worker.WatchdogWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,16 +66,6 @@ enum class NavTab(val title: String, val icon: ImageVector) {
     VAULT("Vault", Icons.Default.Notifications),
     STRICT("Strict", Icons.Default.Lock)
 }
-
-private val StayFocusedColorScheme = darkColorScheme(
-    primary = Color(0xFF6366F1), // Indigo 500
-    onPrimary = Color.White,
-    background = Color(0xFF0F172A), // Slate 900
-    surface = Color(0xFF1E293B), // Slate 800
-    surfaceVariant = Color(0xFF334155), // Slate 700
-    onSurface = Color(0xFFF8FAFC),
-    error = Color(0xFFEF4444)
-)
 
 class MainActivity : ComponentActivity() {
 
@@ -91,10 +87,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         database = StayFocusedDatabase.getInstance(applicationContext)
-        failsafeManager = FailsafeManager(database.recoveryCodeDao(), database.strictSessionDao())
+        failsafeManager = FailsafeManager(
+            recoveryCodeDao = database.recoveryCodeDao(),
+            strictSessionDao = database.strictSessionDao(),
+            failsafeLogDao = database.failsafeLogDao()
+        )
+
+        // Ensure 15-minute periodic background watchdog is scheduled
+        WatchdogWorker.enqueuePeriodicWatchdog(applicationContext)
 
         setContent {
-            MaterialTheme(colorScheme = StayFocusedColorScheme) {
+            MaterialTheme(colorScheme = MonkModeColorScheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -118,13 +121,18 @@ class MainActivity : ComponentActivity() {
     private fun toggleVpn() {
         if (DnsVpnService.isVpnRunning) {
             lifecycleScope.launch(Dispatchers.IO) {
-                val activeStrict = database.strictSessionDao().getActiveStrictSessionSync()
-                if (activeStrict != null) {
+                val activeStrictSession = database.strictSessionDao().getActiveStrictSessionSync()
+                if (activeStrictSession != null) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Website Blocker cannot be stopped while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Cannot disable Web Blocker while Strict Mode is active.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                     return@launch
                 }
+
                 withContext(Dispatchers.Main) {
                     val stopIntent = Intent(this@MainActivity, DnsVpnService::class.java).apply {
                         action = DnsVpnService.ACTION_STOP
@@ -167,8 +175,8 @@ fun MainNavigationHost(
     Scaffold(
         bottomBar = {
             NavigationBar(
-                containerColor = Color(0xFF0F172A),
-                contentColor = Color.White
+                containerColor = MonkPanel,
+                contentColor = MonkMuted
             ) {
                 NavTab.entries.forEach { tab ->
                     val isSelected = tab == selectedTab
@@ -180,8 +188,8 @@ fun MainNavigationHost(
                                 BadgedBox(
                                     badge = {
                                         Badge(
-                                            containerColor = Color(0xFF38BDF8),
-                                            contentColor = Color(0xFF0F172A)
+                                            containerColor = MonkEmber,
+                                            contentColor = MonkInk
                                         ) {
                                             Text(
                                                 text = if (unviewedCount > 99) "99+" else "$unviewedCount",
@@ -204,11 +212,11 @@ fun MainNavigationHost(
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFF38BDF8),
-                            selectedTextColor = Color(0xFF38BDF8),
-                            indicatorColor = Color(0xFF1E293B),
-                            unselectedIconColor = Color(0xFF94A3B8),
-                            unselectedTextColor = Color(0xFF94A3B8)
+                            selectedIconColor = MonkEmber,
+                            selectedTextColor = MonkEmber,
+                            indicatorColor = MonkCardAlt,
+                            unselectedIconColor = MonkMuted,
+                            unselectedTextColor = MonkMuted
                         )
                     )
                 }

@@ -4,26 +4,38 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stayfocused.app.data.local.dao.AppLimitDao
 import com.stayfocused.app.data.local.dao.BlockedDomainDao
+import com.stayfocused.app.data.local.dao.BreakSessionDao
+import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.FocusProfileDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
 import com.stayfocused.app.data.local.dao.StrictSessionDao
+import com.stayfocused.app.data.local.dao.SuppressedNotificationDao
 import com.stayfocused.app.data.local.entities.AppLimitEntity
 import com.stayfocused.app.data.local.entities.BlockedDomainEntity
+import com.stayfocused.app.data.local.entities.BreakSessionEntity
+import com.stayfocused.app.data.local.entities.FailsafeLogEntity
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
 import com.stayfocused.app.data.local.entities.GeofenceProfileEntity
 import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
-import com.stayfocused.app.data.local.dao.BreakSessionDao
-import com.stayfocused.app.data.local.dao.SuppressedNotificationDao
-import com.stayfocused.app.data.local.entities.BreakSessionEntity
-import com.stayfocused.app.data.local.entities.SuppressedNotificationEntity
-import com.stayfocused.app.data.local.entities.StrictSessionEntity
-import com.stayfocused.app.data.local.entities.UnlockEventEntity
 import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
+import com.stayfocused.app.data.local.entities.StrictSessionEntity
+import com.stayfocused.app.data.local.entities.SuppressedNotificationEntity
+import com.stayfocused.app.data.local.entities.UnlockEventEntity
 
+/**
+ * StayFocused Room Database.
+ *
+ * Schema history:
+ * - Version 1: Initial schema.
+ * - Version 2: Baseline MVP schema with app limits, blocked domains, recovery codes, and strict sessions.
+ * - Version 3: Added `failsafe_logs` table (Phase 15 anti-tamper failsafe audit logging).
+ */
 @Database(
     entities = [
         AppLimitEntity::class,
@@ -37,9 +49,10 @@ import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
         GeofenceProfileEntity::class,
         NotificationBlockRuleEntity::class,
         SuppressedNotificationEntity::class,
-        BreakSessionEntity::class
+        BreakSessionEntity::class,
+        FailsafeLogEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -51,8 +64,28 @@ abstract class StayFocusedDatabase : RoomDatabase() {
     abstract fun recoveryCodeDao(): RecoveryCodeDao
     abstract fun suppressedNotificationDao(): SuppressedNotificationDao
     abstract fun breakSessionDao(): BreakSessionDao
+    abstract fun failsafeLogDao(): FailsafeLogDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Schema identical between v1 and v2
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `failsafe_logs` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "`eventType` TEXT NOT NULL, " +
+                        "`details` TEXT NOT NULL, " +
+                        "`success` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: StayFocusedDatabase? = null
 
@@ -63,7 +96,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 instance

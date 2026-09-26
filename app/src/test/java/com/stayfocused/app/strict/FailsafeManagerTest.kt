@@ -38,6 +38,7 @@ class FailsafeManagerTest {
         failsafeManager = FailsafeManager(
             recoveryCodeDao = db.recoveryCodeDao(),
             strictSessionDao = db.strictSessionDao(),
+            failsafeLogDao = db.failsafeLogDao(),
             timeProvider = { simulatedTimeMs }
         )
     }
@@ -174,5 +175,67 @@ class FailsafeManagerTest {
 
         val sessionAfterCancel = db.strictSessionDao().getActiveStrictSessionSync()
         assertNull("Request time must be reset to null after cancellation", sessionAfterCancel?.delayedUnlockRequestTime)
+    }
+
+    @Test
+    fun testAuditLogsRecordedOnDelayedUnlockAndCancel() = runBlocking {
+        val profileId = db.focusProfileDao().upsertProfile(
+            FocusProfileEntity(id = 10, name = "Work", isActive = true)
+        )
+        val sessionId = db.strictSessionDao().insertSession(
+            StrictSessionEntity(
+                id = 99,
+                profileId = profileId,
+                startTime = simulatedTimeMs,
+                targetEndTime = simulatedTimeMs + 5 * 3600 * 1000L,
+                isActive = true
+            )
+        )
+
+        failsafeManager.requestDelayedUnlock(sessionId)
+        val logsAfterRequest = db.failsafeLogDao().getAllLogsSync()
+        assertEquals(1, logsAfterRequest.size)
+        assertEquals("DELAY_REQUESTED", logsAfterRequest[0].eventType)
+        assertTrue(logsAfterRequest[0].success)
+
+        simulatedTimeMs += 1000L
+        failsafeManager.cancelDelayedUnlock(sessionId)
+        val logsAfterCancel = db.failsafeLogDao().getAllLogsSync()
+        assertEquals(2, logsAfterCancel.size)
+        assertEquals("DELAY_CANCELLED", logsAfterCancel[0].eventType)
+        assertTrue(logsAfterCancel[0].success)
+    }
+
+    @Test
+    fun testAuditLogsRecordedOnRecoveryCodeVerificationAttempts() = runBlocking {
+        val profileId = db.focusProfileDao().upsertProfile(
+            FocusProfileEntity(id = 20, name = "Focus", isActive = true)
+        )
+        db.strictSessionDao().insertSession(
+            StrictSessionEntity(
+                id = 101,
+                profileId = profileId,
+                startTime = simulatedTimeMs,
+                targetEndTime = simulatedTimeMs + 2 * 3600 * 1000L,
+                isActive = true
+            )
+        )
+
+        val validCode = failsafeManager.generateAndStoreRecoveryCode()
+
+        // 1. Bad attempt
+        failsafeManager.verifyAndConsumeRecoveryCode("INVALID-CODE-0000")
+        val logsAfterBad = db.failsafeLogDao().getAllLogsSync()
+        assertEquals(1, logsAfterBad.size)
+        assertEquals("RECOVERY_CODE_ENTERED", logsAfterBad[0].eventType)
+        assertFalse("Failed attempt must have success = false", logsAfterBad[0].success)
+
+        // 2. Successful attempt
+        simulatedTimeMs += 1000L
+        failsafeManager.verifyAndConsumeRecoveryCode(validCode)
+        val logsAfterGood = db.failsafeLogDao().getAllLogsSync()
+        assertEquals(2, logsAfterGood.size)
+        assertEquals("RECOVERY_CODE_ENTERED", logsAfterGood[0].eventType)
+        assertTrue("Successful attempt must have success = true", logsAfterGood[0].success)
     }
 }

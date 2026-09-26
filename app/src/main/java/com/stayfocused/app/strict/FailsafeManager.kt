@@ -1,7 +1,10 @@
 package com.stayfocused.app.strict
 
+import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
 import com.stayfocused.app.data.local.dao.StrictSessionDao
+import com.stayfocused.app.data.local.entities.FailsafeEventType
+import com.stayfocused.app.data.local.entities.FailsafeLogEntity
 import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
 import com.stayfocused.app.data.local.entities.StrictSessionEntity
 import com.stayfocused.app.util.RecoveryCodeHasher
@@ -10,10 +13,12 @@ import com.stayfocused.app.util.RecoveryCodeHasher
  * Manages strict mode failsafes:
  * 1. Single-use, high-entropy 16-character emergency recovery codes (PBKDF2/SHA-256 hashed).
  * 2. 24–48 hour time-delayed unlock flow preventing impulsive overrides of strict focus sessions.
+ * 3. Append-only tamper-evident audit logging for all failsafe events.
  */
 class FailsafeManager(
     private val recoveryCodeDao: RecoveryCodeDao,
     private val strictSessionDao: StrictSessionDao,
+    private val failsafeLogDao: FailsafeLogDao? = null,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) {
 
@@ -48,16 +53,43 @@ class FailsafeManager(
      * If valid and unconsumed, consumes the code and deactivates all active strict sessions.
      */
     suspend fun verifyAndConsumeRecoveryCode(enteredCode: String): Boolean {
-        val entity = recoveryCodeDao.getRecoveryCodeSync() ?: return false
-        if (entity.isConsumed) return false
+        val entity = recoveryCodeDao.getRecoveryCodeSync()
+        if (entity == null || entity.isConsumed) {
+            failsafeLogDao?.insertLog(
+                FailsafeLogEntity(
+                    timestamp = timeProvider(),
+                    eventType = FailsafeEventType.RECOVERY_CODE_ENTERED.name,
+                    details = "Emergency recovery code verification rejected (uninitialized or already consumed)",
+                    success = false
+                )
+            )
+            return false
+        }
 
         val isValid = RecoveryCodeHasher.verify(enteredCode, entity.salt, entity.passwordHash)
         if (isValid) {
             recoveryCodeDao.markConsumed()
             strictSessionDao.deactivateAllSessions()
+            failsafeLogDao?.insertLog(
+                FailsafeLogEntity(
+                    timestamp = timeProvider(),
+                    eventType = FailsafeEventType.RECOVERY_CODE_ENTERED.name,
+                    details = "Emergency recovery code verified; strict session deactivated",
+                    success = true
+                )
+            )
             return true
+        } else {
+            failsafeLogDao?.insertLog(
+                FailsafeLogEntity(
+                    timestamp = timeProvider(),
+                    eventType = FailsafeEventType.RECOVERY_CODE_ENTERED.name,
+                    details = "Emergency recovery code verification failed (incorrect code)",
+                    success = false
+                )
+            )
+            return false
         }
-        return false
     }
 
     /**
@@ -79,6 +111,16 @@ class FailsafeManager(
             delayedUnlockDurationMs = duration
         )
         strictSessionDao.updateSession(updated)
+
+        val hours = duration / (60 * 60 * 1000L)
+        failsafeLogDao?.insertLog(
+            FailsafeLogEntity(
+                timestamp = timeProvider(),
+                eventType = FailsafeEventType.DELAY_REQUESTED.name,
+                details = "Requested ${hours}h delayed unlock for Strict Session #${session.id}",
+                success = true
+            )
+        )
         return true
     }
 
@@ -92,6 +134,15 @@ class FailsafeManager(
 
         val updated = session.copy(delayedUnlockRequestTime = null)
         strictSessionDao.updateSession(updated)
+
+        failsafeLogDao?.insertLog(
+            FailsafeLogEntity(
+                timestamp = timeProvider(),
+                eventType = FailsafeEventType.DELAY_CANCELLED.name,
+                details = "Cancelled delayed unlock for Strict Session #${session.id}",
+                success = true
+            )
+        )
         return true
     }
 
@@ -108,27 +159,44 @@ class FailsafeManager(
             ?: return false
 
         if (!session.isActive) return false
-        val requestTime = session.delayedUnlockRequestTime ?: return false
+        val reqTime = session.delayedUnlockRequestTime ?: return false
+        val duration = session.delayedUnlockDurationMs
 
-        val elapsed = currentTimeMs - requestTime
-        if (elapsed >= session.delayedUnlockDurationMs) {
-            val deactivated = session.copy(isActive = false)
-            strictSessionDao.updateSession(deactivated)
+        if (currentTimeMs - reqTime >= duration) {
+            strictSessionDao.deactivateAllSessions()
+            failsafeLogDao?.insertLog(
+                FailsafeLogEntity(
+                    timestamp = currentTimeMs,
+                    eventType = FailsafeEventType.DELAY_FINALIZED.name,
+                    details = "Finalized delayed unlock for Strict Session #${session.id}; sessions deactivated",
+                    success = true
+                )
+            )
             return true
         }
         return false
     }
 
     /**
-     * Calculates the remaining milliseconds before the delayed unlock can be finalized.
-     * Returns null if no delayed unlock request is active.
+     * Returns true if there is an active delayed unlock request pending for [session].
      */
-    fun getDelayedUnlockRemainingMs(
-        session: StrictSessionEntity,
-        currentTimeMs: Long = timeProvider()
-    ): Long? {
-        val requestTime = session.delayedUnlockRequestTime ?: return null
-        val targetUnlockTime = requestTime + session.delayedUnlockDurationMs
-        return (targetUnlockTime - currentTimeMs).coerceAtLeast(0L)
+    fun isUnlockPending(session: StrictSessionEntity): Boolean {
+        return session.isActive && session.delayedUnlockRequestTime != null
+    }
+
+    /**
+     * Calculates the remaining time in milliseconds before the delayed unlock can be finalized.
+     * Returns 0 if the delay has already fully elapsed or if no delay was requested.
+     */
+    fun getRemainingDelayMs(session: StrictSessionEntity, currentTimeMs: Long = timeProvider()): Long {
+        if (!isUnlockPending(session)) return 0L
+        val reqTime = session.delayedUnlockRequestTime ?: return 0L
+        val unlockTime = reqTime + session.delayedUnlockDurationMs
+        val remaining = unlockTime - currentTimeMs
+        return if (remaining > 0L) remaining else 0L
+    }
+
+    fun getDelayedUnlockRemainingMs(session: StrictSessionEntity, currentTimeMs: Long = timeProvider()): Long {
+        return getRemainingDelayMs(session, currentTimeMs)
     }
 }
