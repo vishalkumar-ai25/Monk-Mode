@@ -27,4 +27,7 @@ interface SuppressedNotificationDao {
 
     @Query("DELETE FROM suppressed_notifications")
     suspend fun clearAll()
+
+    @Query("SELECT COUNT(*) FROM suppressed_notifications WHERE postTimestamp >= :startTime")
+    suspend fun getSuppressedCountSince(startTime: Long): Int
 }

@@ -27,4 +27,7 @@ interface StrictSessionDao {
 
     @Query("UPDATE strict_sessions SET isActive = 0 WHERE isActive = 1")
     suspend fun deactivateAllSessions()
+
+    @Query("SELECT * FROM strict_sessions WHERE startTime >= :startTime ORDER BY startTime ASC")
+    suspend fun getSessionsSince(startTime: Long): List<StrictSessionEntity>
 }

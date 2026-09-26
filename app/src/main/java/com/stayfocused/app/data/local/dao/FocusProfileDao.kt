@@ -17,9 +17,16 @@ interface FocusProfileDao {
     @Query("SELECT * FROM focus_profiles")
     fun getAllProfiles(): Flow<List<FocusProfileEntity>>
 
+    @Query("SELECT * FROM focus_profiles")
+    suspend fun getAllProfilesSync(): List<FocusProfileEntity>
+
     @Transaction
     @Query("SELECT * FROM focus_profiles")
     fun getAllProfilesWithRules(): Flow<List<FocusProfileWithRules>>
+
+    @Transaction
+    @Query("SELECT * FROM focus_profiles")
+    suspend fun getAllProfilesWithRulesSync(): List<FocusProfileWithRules>
 
     @Query("SELECT * FROM focus_profiles WHERE id = :id")
     fun getProfileById(id: Long): Flow<FocusProfileEntity?>
@@ -71,4 +78,16 @@ interface FocusProfileDao {
 
     @Query("UPDATE focus_profiles SET isActive = :isActive WHERE id = :id")
     suspend fun setProfileActive(id: Long, isActive: Boolean)
+
+    @Query("UPDATE focus_profiles SET isActive = 0")
+    suspend fun deactivateAllProfiles()
+
+    @Query("SELECT * FROM focus_profiles WHERE isActive = 1 LIMIT 1")
+    suspend fun getActiveProfileSync(): FocusProfileEntity?
+
+    @Transaction
+    suspend fun switchToProfile(targetId: Long) {
+        deactivateAllProfiles()
+        setProfileActive(targetId, true)
+    }
 }

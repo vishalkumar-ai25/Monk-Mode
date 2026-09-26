@@ -8,6 +8,7 @@ import com.stayfocused.app.data.local.entities.BreakSessionEntity
  * 1. Breaks allow temporary access to blocked apps for a defined duration.
  * 2. Breaks are strictly forbidden if a Strict Mode session is active.
  * 3. Break sessions expire automatically once the end timestamp has passed.
+ * 4. Breaks require a short non-empty typed reason (friction defense against impulse bypass).
  */
 class BreakDecisionEngine {
 
@@ -40,17 +41,38 @@ class BreakDecisionEngine {
         return if (remainingMs > 0) remainingMs / 1000L else 0L
     }
 
+    /**
+     * Friction guard: Verifies whether a break can be initiated.
+     * Requires non-empty, non-whitespace reason string and inactive strict mode.
+     */
+    fun canStartBreak(
+        reason: String,
+        isStrictModeActive: Boolean
+    ): Boolean {
+        if (isStrictModeActive) {
+            return false
+        }
+        return reason.isNotBlank()
+    }
+
+    /**
+     * Creates an active break session record.
+     * Enforces that [reason] must be non-empty and non-blank.
+     */
     fun createBreakSession(
         currentTimeMs: Long,
-        durationMinutes: Int
+        durationMinutes: Int,
+        reason: String
     ): BreakSessionEntity {
+        require(reason.isNotBlank()) { "Break reason cannot be blank" }
         val durationMs = durationMinutes * 60 * 1000L
         return BreakSessionEntity(
             id = 1L,
             startTime = currentTimeMs,
             endTime = currentTimeMs + durationMs,
             durationMinutes = durationMinutes,
-            isActive = true
+            isActive = true,
+            reason = reason.trim()
         )
     }
 }

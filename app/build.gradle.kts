@@ -51,8 +51,11 @@ android {
         }
         release {
             buildConfigField("boolean", "ANTI_TAMPER_ENABLED", "true")
-            signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
+            val releaseSigning = signingConfigs.getByName("release")
+            if (releaseSigning.storeFile != null && releaseSigning.storeFile?.exists() == true) {
+                signingConfig = releaseSigning
+            }
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -111,6 +114,10 @@ dependencies {
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)
 
+    // Jetpack Glance (AppWidget)
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
+
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
@@ -124,3 +131,4 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }
+
