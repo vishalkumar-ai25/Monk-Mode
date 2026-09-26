@@ -64,22 +64,89 @@ class UsageStatsTracker(
         // Modern Android (API 28+): queryAndAggregateUsageStats returns pre-aggregated totals
         return try {
             val aggregated = manager.queryAndAggregateUsageStats(startTime, endTime)
-            aggregated.mapNotNull { (pkg, stats) ->
+            val aggregatedResult = aggregated?.mapNotNull { (pkg, stats) ->
                 if (stats.totalTimeInForeground > 0L) {
                     pkg.lowercase() to stats.totalTimeInForeground
                 } else null
-            }.toMap()
+            }?.toMap() ?: emptyMap()
+
+            if (aggregatedResult.isNotEmpty()) {
+                aggregatedResult
+            } else {
+                // Fallback for devices/APIs where queryAndAggregateUsageStats returns an empty map
+                val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+                if (!statsList.isNullOrEmpty()) {
+                    statsList.groupBy { it.packageName.lowercase() }
+                        .mapValues { (_, list) -> list.maxOfOrNull { it.totalTimeInForeground } ?: 0L }
+                        .filterValues { it > 0L }
+                } else {
+                    val bestList = manager.queryUsageStats(UsageStatsManager.INTERVAL_BEST, startTime, endTime)
+                    bestList.orEmpty().groupBy { it.packageName.lowercase() }
+                        .mapValues { (_, list) -> list.maxOfOrNull { it.totalTimeInForeground } ?: 0L }
+                        .filterValues { it > 0L }
+                }
+            }
         } catch (e: Exception) {
             // Fallback for API 26-27 or system query failure
             try {
                 val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
                 statsList.groupBy { it.packageName.lowercase() }
-                    .mapValues { (_, list) -> list.sumOf { it.totalTimeInForeground } }
+                    .mapValues { (_, list) -> list.maxOfOrNull { it.totalTimeInForeground } ?: 0L }
                     .filterValues { it > 0L }
             } catch (e2: Exception) {
                 emptyMap()
             }
         }
+    }
+
+    data class TopAppUsage(
+        val packageName: String,
+        val appName: String,
+        val usageMs: Long
+    )
+
+    /**
+     * Calculates the total device foreground usage in milliseconds across all apps (excluding Monk Mode itself).
+     */
+    fun getTotalDeviceUsageMs(
+        startTime: Long = getStartOfToday(),
+        endTime: Long = System.currentTimeMillis()
+    ): Long {
+        val usageMap = queryForegroundUsage(startTime, endTime)
+        val selfPkg = context.packageName.lowercase()
+        return usageMap.filterKeys { it != selfPkg }.values.sum()
+    }
+
+    /**
+     * Returns top used apps for today sorted descending by foreground usage duration.
+     */
+    fun getTopUsedApps(
+        limit: Int = 5,
+        startTime: Long = getStartOfToday(),
+        endTime: Long = System.currentTimeMillis()
+    ): List<TopAppUsage> {
+        val usageMap = queryForegroundUsage(startTime, endTime)
+        val selfPkg = context.packageName.lowercase()
+        val pm = context.packageManager
+
+        return usageMap
+            .filterKeys { it != selfPkg }
+            .entries
+            .sortedByDescending { it.value }
+            .take(limit)
+            .map { (pkg, usageMs) ->
+                val appName = try {
+                    val info = pm.getApplicationInfo(pkg, 0)
+                    pm.getApplicationLabel(info).toString()
+                } catch (e: Exception) {
+                    pkg.substringAfterLast('.').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                }
+                TopAppUsage(
+                    packageName = pkg,
+                    appName = appName,
+                    usageMs = usageMs
+                )
+            }
     }
 
     /**

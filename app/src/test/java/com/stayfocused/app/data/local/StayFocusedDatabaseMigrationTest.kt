@@ -120,4 +120,59 @@ class StayFocusedDatabaseMigrationTest {
         assertEquals(1, verifyLogCursor.getInt(3))
         verifyLogCursor.close()
     }
+
+    @Test
+    fun migrate2To3_addsReasonColumnWithDefaultEmptyString() {
+        var db = helper.createDatabase(TEST_DB + "-v2-to-v3", 2)
+        db.execSQL(
+            "INSERT INTO break_sessions (id, startTime, endTime, durationMinutes, isActive) " +
+                "VALUES (3, 5000000, 5001000, 20, 0)"
+        )
+        db.close()
+
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v2-to-v3",
+            3,
+            true,
+            StayFocusedDatabase.MIGRATION_2_3
+        )
+
+        val cursor = db.query("SELECT id, startTime, endTime, durationMinutes, isActive, reason FROM break_sessions WHERE id = 3")
+        assertTrue(cursor.moveToFirst())
+        assertEquals(3L, cursor.getLong(0))
+        assertEquals(20, cursor.getInt(3))
+        assertEquals("", cursor.getString(5))
+        cursor.close()
+    }
+
+    @Test
+    fun migrate2To4_directMigrationSucceeds() {
+        var db = helper.createDatabase(TEST_DB + "-v2-to-v4-direct", 2)
+        db.execSQL(
+            "INSERT INTO break_sessions (id, startTime, endTime, durationMinutes, isActive) " +
+                "VALUES (4, 7000000, 7001000, 25, 0)"
+        )
+        db.close()
+
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v2-to-v4-direct",
+            4,
+            true,
+            StayFocusedDatabase.MIGRATION_2_4
+        )
+
+        val cursor = db.query("SELECT id, reason FROM break_sessions WHERE id = 4")
+        assertTrue(cursor.moveToFirst())
+        assertEquals("", cursor.getString(1))
+        cursor.close()
+
+        val logValues = ContentValues().apply {
+            put("timestamp", 9500000L)
+            put("eventType", "MIGRATION_DIRECT")
+            put("details", "Direct migration tested")
+            put("success", 1)
+        }
+        val insertedLogId = db.insert("failsafe_logs", SQLiteDatabase.CONFLICT_REPLACE, logValues)
+        assertTrue(insertedLogId > 0)
+    }
 }

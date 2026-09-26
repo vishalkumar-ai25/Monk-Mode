@@ -49,16 +49,31 @@ class ProfileSwitchDecisionEngineTest {
     }
 
     @Test
-    fun testSwitchFromStrictModeProfileRequiresConfirmation() {
+    fun testSwitchFromStrictModeProfileReturnsBlockedByStrictMode() {
         val current = FocusProfileEntity(id = 1, name = "Strict Monk", isActive = true, isStrictMode = true)
         val target = FocusProfileEntity(id = 2, name = "Casual Reading", isActive = false, isStrictMode = false)
 
         val decision = engine.evaluateSwitch(currentActiveProfile = current, targetProfile = target)
 
-        assertTrue(decision is ProfileSwitchDecision.RequiresConfirmation)
-        val confirmation = decision as ProfileSwitchDecision.RequiresConfirmation
-        assertEquals(current, confirmation.outgoingProfile)
-        assertEquals(target, confirmation.targetProfile)
+        assertTrue(decision is ProfileSwitchDecision.BlockedByStrictMode)
+        val blocked = decision as ProfileSwitchDecision.BlockedByStrictMode
+        assertEquals(current, blocked.outgoingProfile)
+    }
+
+    @Test
+    fun testSwitchWhenStrictModeActiveFlagIsTrueReturnsBlockedByStrictMode() {
+        val current = FocusProfileEntity(id = 1, name = "Casual Reading", isActive = true, isStrictMode = false)
+        val target = FocusProfileEntity(id = 2, name = "Deep Work", isActive = false, isStrictMode = false)
+
+        val decision = engine.evaluateSwitch(
+            currentActiveProfile = current,
+            targetProfile = target,
+            isStrictModeActive = true
+        )
+
+        assertTrue(decision is ProfileSwitchDecision.BlockedByStrictMode)
+        val blocked = decision as ProfileSwitchDecision.BlockedByStrictMode
+        assertEquals(current, blocked.outgoingProfile)
     }
 
     @Test

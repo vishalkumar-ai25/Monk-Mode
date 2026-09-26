@@ -17,10 +17,10 @@ sealed class ProfileSwitchDecision {
     data class ImmediateSwitch(val targetProfile: FocusProfileEntity) : ProfileSwitchDecision()
 
     /**
-     * Outgoing profile has Strict Mode enabled; requires explicit confirmation dialog before switching.
+     * Outgoing profile or active session has Strict Mode enabled; profile switching is hard-blocked
+     * to prevent bypassing focus restrictions.
      */
-    data class RequiresConfirmation(
-        val outgoingProfile: FocusProfileEntity,
-        val targetProfile: FocusProfileEntity
+    data class BlockedByStrictMode(
+        val outgoingProfile: FocusProfileEntity?
     ) : ProfileSwitchDecision()
 }

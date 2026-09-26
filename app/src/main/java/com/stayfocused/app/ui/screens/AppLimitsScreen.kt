@@ -100,9 +100,19 @@ fun AppLimitsScreen(
     var installedApps by remember { mutableStateOf<List<InstalledAppItem>>(emptyList()) }
     var editingAppLimit by remember { mutableStateOf<AppLimitEntity?>(null) }
 
-    // Load installed apps asynchronously
+    val tracker = remember { com.stayfocused.app.tracker.UsageStatsTracker(context) }
+    var hasUsagePermission by remember { mutableStateOf(tracker.hasUsageStatsPermission()) }
+
+    // Sync usage stats and load installed apps asynchronously
     LaunchedEffect(Unit) {
         val pm = context.packageManager
+        withContext(Dispatchers.IO) {
+            try {
+                if (tracker.hasUsageStatsPermission()) {
+                    tracker.syncUsageWithDatabase(database.appLimitDao())
+                }
+            } catch (e: Exception) {}
+        }
         val items = withContext(Dispatchers.IO) {
             val mainIntent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
@@ -139,6 +149,52 @@ fun AppLimitsScreen(
                     text = "Sub-10ms interception  •  daily screen time boundaries",
                     style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                 )
+            }
+        }
+
+        // Usage Access Missing Banner
+        if (!hasUsagePermission) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkDanger.copy(alpha = 0.12f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MonkDanger.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Usage Access Required",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MonkDanger
+                                )
+                            )
+                            Text(
+                                text = "App limits need Usage Access permission to track elapsed screen time.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 11.sp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                context.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                })
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MonkDanger, contentColor = MonkInk)
+                        ) {
+                            Text("Grant", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
 

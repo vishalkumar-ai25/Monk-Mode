@@ -165,13 +165,12 @@ private fun ProfileChipItem(
 }
 
 /**
- * Confirmation dialog displayed when attempting to switch away from a profile currently in Strict Mode.
+ * Security dialog informing the user that profile switching is locked while Strict Mode is active.
+ * Prevents relapse by removing any bypass mechanism.
  */
 @Composable
-fun StrictProfileSwitchDialog(
-    outgoingProfile: FocusProfileEntity,
-    targetProfile: FocusProfileEntity,
-    onConfirm: () -> Unit,
+fun StrictProfileSwitchBlockedDialog(
+    outgoingProfile: FocusProfileEntity?,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -179,7 +178,7 @@ fun StrictProfileSwitchDialog(
         containerColor = MonkCard,
         title = {
             Text(
-                text = "Switch from Strict Mode?",
+                text = "Profile Switching Locked",
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
@@ -189,24 +188,23 @@ fun StrictProfileSwitchDialog(
         },
         text = {
             Text(
-                text = "Profile \"${outgoingProfile.name}\" is actively enforcing Strict Mode. Switching to \"${targetProfile.name}\" will end strict enforcement on the previous profile rules. Are you sure you want to proceed?",
+                text = if (outgoingProfile != null) {
+                    "Profile \"${outgoingProfile.name}\" is actively locked under Strict Mode. Switching profiles is disabled to maintain your focus commitment and prevent relapse."
+                } else {
+                    "Strict Mode is currently active on your device. Switching profiles is disabled until your session concludes or is unlocked via the Strict Lock Screen."
+                },
                 style = MaterialTheme.typography.bodyMedium.copy(color = MonkMuted)
             )
         },
         confirmButton = {
             Button(
-                onClick = onConfirm,
+                onClick = onDismiss,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MonkDanger,
+                    containerColor = MonkEmber,
                     contentColor = MonkInk
                 )
             ) {
-                Text("Confirm Switch")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Stay Focused", color = MonkMuted)
+                Text("Understood")
             }
         }
     )

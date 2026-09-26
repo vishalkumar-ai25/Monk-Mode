@@ -21,9 +21,29 @@ class FocusSummaryShareManager(
 ) {
 
     /**
+     * Purges stale shared summary images from the cache directory to prevent disk bloat.
+     */
+    fun cleanupOldSharedImages(maxAgeMs: Long = 24 * 60 * 60 * 1000L) {
+        try {
+            val shareDir = File(context.cacheDir, "shared_images")
+            if (shareDir.exists() && shareDir.isDirectory) {
+                val now = System.currentTimeMillis()
+                shareDir.listFiles()?.forEach { file ->
+                    if (now - file.lastModified() > maxAgeMs) {
+                        file.delete()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore cache cleanup failures
+        }
+    }
+
+    /**
      * Saves the bitmap to local cache as a PNG file and returns the File handle.
      */
     fun saveBitmapToFile(bitmap: Bitmap): File {
+        cleanupOldSharedImages()
         val shareDir = File(context.cacheDir, "shared_images").apply {
             if (!exists()) mkdirs()
         }
