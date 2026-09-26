@@ -25,4 +25,17 @@ object TimeFormatter {
             else -> "${days}d ago"
         }
     }
+
+    fun formatMinutes(minutes: Long): String {
+        if (minutes < 60) return "${minutes}m"
+        val hours = minutes / 60
+        val remainingMinutes = minutes % 60
+        return if (remainingMinutes == 0L) {
+            "${hours}h"
+        } else {
+            "${hours}h ${remainingMinutes}m"
+        }
+    }
+
+    fun formatMinutes(minutes: Int): String = formatMinutes(minutes.toLong())
 }

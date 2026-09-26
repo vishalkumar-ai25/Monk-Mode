@@ -51,6 +51,7 @@ class FocusAccessibilityService : AccessibilityService() {
     @Volatile var cachedActiveProfiles: List<FocusProfileRule> = emptyList()
     @Volatile var cachedAppLimits: Map<String, AppLimitSnapshot> = emptyMap()
     @Volatile var isStrictModeActive: Boolean = false
+    @Volatile var cachedStrictEndTimeMs: Long = 0L
     @Volatile var cachedBreakEndTimeMs: Long = 0L
 
     var isBreakActive: Boolean
@@ -107,12 +108,27 @@ class FocusAccessibilityService : AccessibilityService() {
         val isGracePeriodActive = isBootGracePeriodProvider()
         val appLimit = cachedAppLimits[target.lowercase()]
 
+        val now = System.currentTimeMillis()
+        val isStrictActive = isStrictModeActive && (cachedStrictEndTimeMs == 0L || now < cachedStrictEndTimeMs)
+        if (isStrictModeActive && cachedStrictEndTimeMs in 1..now) {
+            isStrictModeActive = false
+            database?.let { db ->
+                serviceScope.launch {
+                    try {
+                        db.strictSessionDao().deactivateAllSessions()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error auto-deactivating expired strict session", e)
+                    }
+                }
+            }
+        }
+
         val context = InterceptionContext(
             targetPackageName = target,
-            currentTimeMillis = System.currentTimeMillis(),
+            currentTimeMillis = now,
             appLimit = appLimit,
             activeProfiles = cachedActiveProfiles,
-            isStrictModeActive = isStrictModeActive,
+            isStrictModeActive = isStrictActive,
             isBreakActive = isBreakActive,
             antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED,
             isSettingsOrInstaller = isSettingsOrInstaller,
@@ -121,7 +137,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
         val decision = engine.evaluate(context)
 
-        // Increment launch counts on package transition
+        // Increment launch counts and sync usage on package transition
         if (target != lastForegroundPackage) {
             lastForegroundPackage = target
             val db = database
@@ -129,8 +145,9 @@ class FocusAccessibilityService : AccessibilityService() {
                 serviceScope.launch {
                     try {
                         usageStatsTracker?.recordAppLaunch(target, db.appLimitDao())
+                        usageStatsTracker?.syncUsageWithDatabase(db.appLimitDao())
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error recording launch for $target", e)
+                        Log.e(TAG, "Error recording launch or syncing usage for $target", e)
                     }
                 }
             }
@@ -218,7 +235,10 @@ class FocusAccessibilityService : AccessibilityService() {
                 db.strictSessionDao().getActiveStrictSession()
                     .catch { e -> Log.e(TAG, "Error observing strict sessions", e) }
                     .collectLatest { session ->
-                        isStrictModeActive = session != null && session.isActive
+                        val now = System.currentTimeMillis()
+                        val active = session != null && session.isActive && (session.targetEndTime == 0L || now < session.targetEndTime)
+                        isStrictModeActive = active
+                        cachedStrictEndTimeMs = session?.targetEndTime ?: 0L
                     }
             }
 

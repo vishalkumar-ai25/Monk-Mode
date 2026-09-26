@@ -26,11 +26,19 @@ class ProtectionHealthChecker(
         val now = System.currentTimeMillis()
 
         // 1. Accessibility Service check
-        val isAccessibilityEnabled = WatchdogWorker.isAccessibilityServiceEnabled(context)
+        val isAccessibilityEnabled = try {
+            WatchdogWorker.isAccessibilityServiceEnabled(context)
+        } catch (e: Exception) {
+            false
+        }
         val accessibilityResult = engine.evaluateAccessibility(isAccessibilityEnabled)
 
         // 2. VPN Tunnel check
-        val isVpnRunning = DnsVpnService.isVpnRunning
+        val isVpnRunning = try {
+            DnsVpnService.isVpnRunning
+        } catch (e: Exception) {
+            false
+        }
         val isVpnPrepared = try {
             VpnService.prepare(context) == null
         } catch (e: Exception) {
@@ -44,8 +52,8 @@ class ProtectionHealthChecker(
         val vpnResult = engine.evaluateVpn(isVpnRunning, isVpnPrepared, blockedDomainsExist)
 
         // 3. Battery Optimization exemption check
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val isIgnoringBatteryOptimizations = try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
             powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
         } catch (e: Exception) {
             false
@@ -53,7 +61,11 @@ class ProtectionHealthChecker(
         val batteryResult = engine.evaluateBatteryOptimization(isIgnoringBatteryOptimizations)
 
         // 4. Watchdog liveness check
-        val lastWatchdog = preferences.lastWatchdogRunTimestamp
+        val lastWatchdog = try {
+            preferences.lastWatchdogRunTimestamp
+        } catch (e: Exception) {
+            0L
+        }
         val watchdogResult = engine.evaluateWatchdog(lastWatchdog, now)
 
         val checks = listOf(accessibilityResult, vpnResult, batteryResult, watchdogResult)
