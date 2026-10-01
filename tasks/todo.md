@@ -48,8 +48,9 @@
   - [x] Write and pass `WeeklyReflectionWorkerTest.kt`.
   - [x] Re-arm reflection scheduling in `BootCompletedReceiver`, `WatchdogWorker`, and `MainActivity`.
 
-- [ ] **Task 4: Quality Gate & Adversarial Code Review**
+- [x] **Task 4: Quality Gate & Adversarial Code Review**
   - [x] Run full unit test suite `./gradlew testDebugUnitTest` (100% pass).
   - [x] Assemble debug APK `./gradlew assembleDebug` (0 errors).
   - [x] Invoke adversarial code review (`code-reviewer`) and address all required findings.
-  - [ ] Commit, merge to `main`, and push to `origin/main`.
+  - [x] Commit, merge to `main`, and push to `origin/main` (`11f4f4a`).
+
