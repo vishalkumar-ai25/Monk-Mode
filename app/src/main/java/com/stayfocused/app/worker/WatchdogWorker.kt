@@ -54,6 +54,7 @@ class WatchdogWorker(
                 ExistingPeriodicWorkPolicy.UPDATE,
                 request
             )
+            WeeklyReflectionScheduler.scheduleWeeklyReflection(context)
             Log.i(TAG, "Periodic 15-minute WatchdogWorker enqueued")
         }
 

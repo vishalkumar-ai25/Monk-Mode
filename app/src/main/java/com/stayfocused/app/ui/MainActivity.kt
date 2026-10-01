@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
 
         // Ensure 15-minute periodic background watchdog is scheduled
         WatchdogWorker.enqueuePeriodicWatchdog(applicationContext)
+        com.stayfocused.app.worker.WeeklyReflectionScheduler.scheduleWeeklyReflection(applicationContext)
 
         setContent {
             MaterialTheme(colorScheme = MonkModeColorScheme) {

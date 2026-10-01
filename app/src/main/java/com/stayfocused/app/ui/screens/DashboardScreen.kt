@@ -331,26 +331,32 @@ fun DashboardScreen(
 
         // Quick Breaks Card
         item {
+            val isStrictActive = activeStrictSession != null && activeStrictSession!!.isActive
             TakeABreakCard(
                 activeBreak = activeBreak,
-                onStartBreak = { durationMinutes ->
+                isStrictModeActive = isStrictActive,
+                onStartBreak = { durationMinutes, reason ->
                     scope.launch(Dispatchers.IO) {
-                        val activeStrictSession = database.strictSessionDao().getActiveStrictSessionSync()
-                        if (activeStrictSession != null) {
+                        val activeStrict = database.strictSessionDao().getActiveStrictSessionSync()
+                        val isStrictNow = activeStrict != null && activeStrict.isActive
+                        val breakEngine = BreakDecisionEngine()
+
+                        if (!breakEngine.canStartBreak(reason, isStrictModeActive = isStrictNow)) {
                             withContext(Dispatchers.Main) {
-                                Toast.makeText(
-                                    context,
-                                    "Breaks are not permitted while Strict Mode is active.",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                val msg = if (isStrictNow) {
+                                    "Breaks are not permitted while Strict Mode is active."
+                                } else {
+                                    "A valid non-empty reason is required to take a break."
+                                }
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             }
                             return@launch
                         }
 
-                        val breakEngine = BreakDecisionEngine()
                         val session = breakEngine.createBreakSession(
                             currentTimeMs = System.currentTimeMillis(),
-                            durationMinutes = durationMinutes
+                            durationMinutes = durationMinutes,
+                            reason = reason
                         )
                         database.breakSessionDao().upsertBreak(session)
                         withContext(Dispatchers.Main) {

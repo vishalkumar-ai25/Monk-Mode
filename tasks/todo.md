@@ -10,34 +10,46 @@
 # Tasks: Wave 2 Implementation (Encrypted Settings Backup & Hardened Profile Switching)
 
 - [x] **Task 1: Architecture & Specs**
-  - [x] Write ADR-003: Encrypted Settings Backup and Hardened Profile Switching Invariants (`docs/adr/003-encrypted-settings-backup-and-profile-switching.md`).
-  - [x] Conduct Doubt-Driven adversarial security audit on strict mode bypass & crypto vectors.
-  - [x] Write `docs/phase11_settings_backup_spec.md` & `tasks/dod/phase11_dod.md`.
-  - [x] Write `docs/phase12_quick_profile_switching_spec.md` & `tasks/dod/phase12_dod.md`.
-
 - [x] **Task 2: Encrypted Settings Backup Engine (Phase 11 - TDD)**
-  - [x] Implement `domain/model/SettingsBackupModels.kt` (export DTOs and import result types).
-  - [x] Implement pure Kotlin `SettingsCryptoEngine.kt` (AES-256-GCM, PBKDF2 100k, AAD binding, defensive exception mapping).
-  - [x] Write and pass `SettingsCryptoEngineTest.kt` (key derivation, round-trip encrypt/decrypt, bad password, tampered AAD/ciphertext).
-  - [x] Add synchronous and scoped profile helper methods to `FocusProfileDao.kt`.
-  - [x] Implement `SettingsBackupManager.kt` with Room transaction, strict mode check, and quota preservation.
-  - [x] Write and pass `SettingsBackupManagerTest.kt` (Room database integration test).
-
 - [x] **Task 3: Hardened Quick Profile Switching Engine (Phase 12 - TDD)**
-  - [x] Implement `domain/model/ProfileSwitchModels.kt` (`AlreadyActive`, `BlockedByStrictMode`, `ImmediateSwitch`).
-  - [x] Implement pure Kotlin `ProfileSwitchDecisionEngine.kt` (enforcing strict session lockout).
-  - [x] Implement `ProfileSwitchManager.kt` for atomic transactional profile switches.
-  - [x] Write and pass `ProfileSwitchDecisionEngineTest.kt` & `ProfileSwitchManagerTest.kt`.
-  - [x] Add atomic `switchToProfile(targetId: Long)` single-query update to `FocusProfileDao.kt`.
-  - [x] Write and pass `FocusProfileSwitchDaoTest.kt`.
-
 - [x] **Task 4: UI Components & Dashboard Integration**
-  - [x] Implement `QuickProfileChipRow.kt` with Monk Mode tokens, TalkBack accessibility semantics, and Strict Mode rejection alert.
-  - [x] Implement `BackupRestoreDialogs.kt` with Monk Mode styled password inputs, keyboard hygiene, and error banners.
-  - [x] Integrate Profile Chip Row and Backup/Restore SAF launchers into `DashboardScreen.kt` with OOM bounds and activity recreation resilience.
-
 - [x] **Task 5: Verification & Quality Gate**
+  - [x] Commit, merge to `main`, and push to `origin/main` (`f20f725`).
+
+---
+
+# Tasks: Wave 3 Implementation (Friction-Based Breaks & Weekly Reflection Digest)
+
+- [x] **Task 1: Architecture & Specs**
+  - [x] Write ADR-004: Friction-Based Break Justification and Weekly Reflection Engine (`docs/adr/004-friction-breaks-and-weekly-reflection.md`).
+  - [x] Write `docs/phase9_friction_based_breaks_spec.md` & `tasks/dod/phase9_dod.md`.
+  - [x] Write `docs/phase10_weekly_reflection_spec.md` & `tasks/dod/phase10_dod.md`.
+
+- [x] **Task 2: Friction-Based Breaks Engine & Room Migration v3 -> v4 (Phase 9 - TDD)**
+  - [x] Add `reason: String = ""` to `BreakSessionEntity.kt`.
+  - [x] Bump `StayFocusedDatabase` to version `4` and implement `MIGRATION_3_4`.
+  - [x] Generate/verify exported Room schema `4.json`.
+  - [x] Update `StayFocusedDatabaseMigrationTest.kt` for v2 -> v3 -> v4 and v3 -> v4 data integrity.
+  - [x] Update pure Kotlin `BreakDecisionEngine.kt` (`canStartBreak`, `createBreakSession` with `require(reason.isNotBlank())`).
+  - [x] Update and pass `BreakDecisionEngineTest.kt`.
+  - [x] Update `TakeABreakTileService.kt` to supply explicit reason `"Quick Settings Break"`.
+  - [x] Update and pass `TakeABreakTileServiceTest.kt`.
+  - [x] Update `TakeABreakCard.kt` to present friction prompt asking for reason before starting break and show strict lock state.
+  - [x] Update `DashboardScreen.kt` to pass user's reason to break session creation and guard via `canStartBreak`.
+
+- [x] **Task 3: Weekly Reflection Digest Engine & WorkManager Scheduling (Phase 10 - TDD)**
+  - [x] Implement `domain/model/WeeklyReflectionModels.kt` (`AppUsageDrop`, `WeeklyReflectionDigest`).
+  - [x] Implement pure Kotlin `WeeklyReflectionEngine.kt` (biggest drop, streak hours, digest formatting, next Sunday 21:00 calculation).
+  - [x] Write and pass `WeeklyReflectionEngineTest.kt`.
+  - [x] Add Room aggregation queries to `SuppressedNotificationDao`, `StrictSessionDao`, and `AppLimitDao` (with conditional subtraction for allowed launch limits).
+  - [x] Write and pass `WeeklyReflectionDaoTest.kt`.
+  - [x] Implement `WeeklyReflectionWorker.kt` (Room + UsageStats aggregation, bounded single IPC app label resolution, local notification).
+  - [x] Implement `WeeklyReflectionScheduler.kt` (PeriodicWorkRequest to next Sunday 21:00).
+  - [x] Write and pass `WeeklyReflectionWorkerTest.kt`.
+  - [x] Re-arm reflection scheduling in `BootCompletedReceiver`, `WatchdogWorker`, and `MainActivity`.
+
+- [ ] **Task 4: Quality Gate & Adversarial Code Review**
   - [x] Run full unit test suite `./gradlew testDebugUnitTest` (100% pass).
   - [x] Assemble debug APK `./gradlew assembleDebug` (0 errors).
-  - [x] Adversarial Code Review via `code-reviewer` subagent and all findings addressed.
+  - [x] Invoke adversarial code review (`code-reviewer`) and address all required findings.
   - [ ] Commit, merge to `main`, and push to `origin/main`.

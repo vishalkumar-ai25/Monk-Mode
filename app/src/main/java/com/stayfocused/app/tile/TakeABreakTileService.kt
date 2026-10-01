@@ -123,7 +123,7 @@ open class TakeABreakTileService : TileService() {
                 }
             } else {
                 // Start a new 5-minute break
-                val newSession = breakEngine.createBreakSession(now, DEFAULT_BREAK_MINUTES)
+                val newSession = breakEngine.createBreakSession(now, DEFAULT_BREAK_MINUTES, "Quick Settings Break")
                 withContext(ioDispatcher) {
                     db.breakSessionDao().upsertBreak(newSession)
                 }

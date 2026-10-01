@@ -120,4 +120,112 @@ class StayFocusedDatabaseMigrationTest {
         assertEquals(1, verifyLogCursor.getInt(3))
         verifyLogCursor.close()
     }
+
+    @Test
+    fun migrate3To4_preservesExistingDataAndAddsReasonColumnToBreakSessions() {
+        // 1. Create database at version 3
+        var db = helper.createDatabase(TEST_DB + "-v3", 3)
+
+        // Insert break session into version 3 (schema 3 has no reason column)
+        db.execSQL(
+            "INSERT INTO break_sessions (id, startTime, endTime, durationMinutes, isActive) " +
+                "VALUES (1, 6000000, 6000900, 15, 0)"
+        )
+        // Insert failsafe log into version 3
+        db.execSQL(
+            "INSERT INTO failsafe_logs (timestamp, eventType, details, success) " +
+                "VALUES (7000000, 'DELAY_REQUESTED', 'Requested 24h delay', 1)"
+        )
+        db.close()
+
+        // 2. Run migration 3 -> 4
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v3",
+            4,
+            true,
+            StayFocusedDatabase.MIGRATION_3_4
+        )
+
+        // 3. Verify existing BreakSessionEntity data survived and has reason default ''
+        val breakCursor = db.query("SELECT id, startTime, endTime, durationMinutes, isActive, reason FROM break_sessions WHERE id = 1")
+        assertTrue(breakCursor.moveToFirst())
+        assertEquals(1L, breakCursor.getLong(0))
+        assertEquals(6000000L, breakCursor.getLong(1))
+        assertEquals(6000900L, breakCursor.getLong(2))
+        assertEquals(15, breakCursor.getInt(3))
+        assertEquals(0, breakCursor.getInt(4))
+        assertEquals("", breakCursor.getString(5))
+        breakCursor.close()
+
+        // 4. Verify failsafe_logs survived
+        val logCursor = db.query("SELECT timestamp, eventType, details, success FROM failsafe_logs WHERE timestamp = 7000000")
+        assertTrue(logCursor.moveToFirst())
+        assertEquals(7000000L, logCursor.getLong(0))
+        assertEquals("DELAY_REQUESTED", logCursor.getString(1))
+        logCursor.close()
+
+        // 5. Verify inserting a new break session with custom reason works at version 4
+        db.execSQL(
+            "INSERT INTO break_sessions (id, startTime, endTime, durationMinutes, isActive, reason) " +
+                "VALUES (2, 8000000, 8001800, 30, 1, 'Doctor Appointment')"
+        )
+        val newBreakCursor = db.query("SELECT id, startTime, endTime, durationMinutes, isActive, reason FROM break_sessions WHERE id = 2")
+        assertTrue(newBreakCursor.moveToFirst())
+        assertEquals(2L, newBreakCursor.getLong(0))
+        assertEquals("Doctor Appointment", newBreakCursor.getString(5))
+        newBreakCursor.close()
+    }
+
+    @Test
+    fun migrate2To4_preservesExistingDataAcrossCumulativeMigrations() {
+        // 1. Create database at version 2
+        var db = helper.createDatabase(TEST_DB + "-v2", 2)
+
+        db.execSQL(
+            "INSERT INTO app_limits (packageName, appName, dailyTimeLimitMinutes, dailyLaunchLimit, isBlocked, currentDayUsageMs, currentDayLaunches, lastResetTimestamp) " +
+                "VALUES ('com.instagram.android', 'Instagram', 30, 10, 1, 15000, 3, 1000000)"
+        )
+        db.execSQL(
+            "INSERT INTO break_sessions (id, startTime, endTime, durationMinutes, isActive) " +
+                "VALUES (1, 6000000, 6000900, 15, 0)"
+        )
+        db.close()
+
+        // 2. Run cumulative migrations 2 -> 3 and 3 -> 4
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v2",
+            4,
+            true,
+            StayFocusedDatabase.MIGRATION_2_3,
+            StayFocusedDatabase.MIGRATION_3_4
+        )
+
+        // 3. Verify AppLimitEntity data survived
+        val appCursor = db.query("SELECT packageName, appName, dailyTimeLimitMinutes, currentDayUsageMs FROM app_limits WHERE packageName = 'com.instagram.android'")
+        assertTrue(appCursor.moveToFirst())
+        assertEquals("Instagram", appCursor.getString(1))
+        assertEquals(30, appCursor.getInt(2))
+        assertEquals(15000L, appCursor.getLong(3))
+        appCursor.close()
+
+        // 4. Verify BreakSessionEntity data survived with default empty reason
+        val breakCursor = db.query("SELECT id, startTime, endTime, durationMinutes, isActive, reason FROM break_sessions WHERE id = 1")
+        assertTrue(breakCursor.moveToFirst())
+        assertEquals(1L, breakCursor.getLong(0))
+        assertEquals(6000000L, breakCursor.getLong(1))
+        assertEquals(15, breakCursor.getInt(3))
+        assertEquals(0, breakCursor.getInt(4))
+        assertEquals("", breakCursor.getString(5))
+        breakCursor.close()
+
+        // 5. Verify failsafe_logs table was created and can accept inserts
+        db.execSQL(
+            "INSERT INTO failsafe_logs (timestamp, eventType, details, success) " +
+                "VALUES (9000000, 'BOOT_GRACE_WINDOW_USED', 'Rebooted', 1)"
+        )
+        val logCursor = db.query("SELECT timestamp, eventType FROM failsafe_logs WHERE timestamp = 9000000")
+        assertTrue(logCursor.moveToFirst())
+        assertEquals("BOOT_GRACE_WINDOW_USED", logCursor.getString(1))
+        logCursor.close()
+    }
 }

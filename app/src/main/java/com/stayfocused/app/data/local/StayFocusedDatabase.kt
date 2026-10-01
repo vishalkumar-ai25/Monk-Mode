@@ -35,6 +35,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
  * - Version 1: Initial schema.
  * - Version 2: Baseline MVP schema with app limits, blocked domains, recovery codes, and strict sessions.
  * - Version 3: Added `failsafe_logs` table (Phase 15 anti-tamper failsafe audit logging).
+ * - Version 4: Added `reason` column to `break_sessions` table (Phase 9 friction-based breaks).
  */
 @Database(
     entities = [
@@ -52,7 +53,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         BreakSessionEntity::class,
         FailsafeLogEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -86,6 +87,12 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `break_sessions` ADD COLUMN `reason` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile
         private var INSTANCE: StayFocusedDatabase? = null
 
@@ -96,7 +103,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 instance

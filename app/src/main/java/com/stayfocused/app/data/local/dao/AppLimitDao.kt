@@ -35,4 +35,21 @@ interface AppLimitDao {
 
     @Query("UPDATE app_limits SET currentDayUsageMs = :usageMs, currentDayLaunches = :launches WHERE packageName = :packageName")
     suspend fun updateUsageAndLaunches(packageName: String, usageMs: Long, launches: Int)
+
+    @Query("""
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN isBlocked = 1 THEN currentDayLaunches
+                WHEN dailyLaunchLimit > 0 AND currentDayLaunches >= dailyLaunchLimit 
+                    THEN (currentDayLaunches - dailyLaunchLimit)
+                ELSE currentDayLaunches
+            END
+        ), 0) 
+        FROM app_limits 
+        WHERE lastResetTimestamp >= :since 
+          AND (isBlocked = 1 
+               OR (dailyLaunchLimit > 0 AND currentDayLaunches >= dailyLaunchLimit) 
+               OR (dailyTimeLimitMinutes > 0 AND currentDayUsageMs >= (dailyTimeLimitMinutes * 60000)))
+    """)
+    suspend fun getBlockedAppLaunchesCountSince(since: Long): Int
 }

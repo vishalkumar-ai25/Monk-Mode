@@ -61,6 +61,13 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not reschedule midnight alarm on boot", e)
                 }
+
+                // Re-arm weekly reflection Sunday schedule
+                try {
+                    com.stayfocused.app.worker.WeeklyReflectionScheduler.scheduleWeeklyReflection(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not reschedule weekly reflection on boot", e)
+                }
             }
         }
     }

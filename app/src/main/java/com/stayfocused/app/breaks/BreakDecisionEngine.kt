@@ -40,17 +40,48 @@ class BreakDecisionEngine {
         return if (remainingMs > 0) remainingMs / 1000L else 0L
     }
 
+    /**
+     * Friction guard: Verifies whether a break can be initiated.
+     * Requires non-empty, non-whitespace reason string and inactive strict mode.
+     */
+    fun canStartBreak(
+        reason: String,
+        isStrictModeActive: Boolean
+    ): Boolean {
+        if (isStrictModeActive) {
+            return false
+        }
+        return reason.isNotBlank()
+    }
+
+    /**
+     * Creates an active break session record.
+     * Enforces that [reason] must be non-empty and non-blank.
+     */
     fun createBreakSession(
         currentTimeMs: Long,
-        durationMinutes: Int
+        durationMinutes: Int,
+        reason: String
     ): BreakSessionEntity {
+        require(reason.isNotBlank()) { "Break reason cannot be blank" }
         val durationMs = durationMinutes * 60 * 1000L
         return BreakSessionEntity(
             id = 1L,
             startTime = currentTimeMs,
             endTime = currentTimeMs + durationMs,
             durationMinutes = durationMinutes,
-            isActive = true
+            isActive = true,
+            reason = reason.trim()
         )
+    }
+
+    /**
+     * Backwards-compatible overload with default generic reason.
+     */
+    fun createBreakSession(
+        currentTimeMs: Long,
+        durationMinutes: Int
+    ): BreakSessionEntity {
+        return createBreakSession(currentTimeMs, durationMinutes, "Manual break")
     }
 }

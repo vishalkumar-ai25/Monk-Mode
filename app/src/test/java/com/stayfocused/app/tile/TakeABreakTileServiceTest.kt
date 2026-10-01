@@ -96,6 +96,7 @@ class TakeABreakTileServiceTest {
         val activeBreak = database.breakSessionDao().getActiveBreakSync()
         assertNotNull(activeBreak)
         assertEquals(5, activeBreak?.durationMinutes)
+        assertEquals("Quick Settings Break", activeBreak?.reason)
     }
 
     @Test
