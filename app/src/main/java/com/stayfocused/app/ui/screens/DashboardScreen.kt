@@ -57,11 +57,22 @@ import androidx.work.WorkManager
 import com.stayfocused.app.BuildConfig
 import com.stayfocused.app.breaks.BreakDecisionEngine
 import com.stayfocused.app.data.local.StayFocusedDatabase
+import com.stayfocused.app.data.local.entities.FocusProfileEntity
+import com.stayfocused.app.domain.ProfileSwitchDecisionEngine
+import com.stayfocused.app.domain.ProfileSwitchManager
 import com.stayfocused.app.domain.ProtectionHealthChecker
+import com.stayfocused.app.domain.SettingsBackupManager
+import com.stayfocused.app.domain.model.ProfileSwitchDecision
 import com.stayfocused.app.domain.model.ProtectionCheckType
+import com.stayfocused.app.domain.model.SettingsImportResult
 import com.stayfocused.app.oem.OemSurvivalHelper
 import com.stayfocused.app.ui.components.DailyUsageDial
+import com.stayfocused.app.ui.components.ExportPasswordDialog
+import com.stayfocused.app.ui.components.ImportPasswordDialog
 import com.stayfocused.app.ui.components.ProtectionStatusCard
+import com.stayfocused.app.ui.components.QuickProfileChipRow
+import com.stayfocused.app.ui.components.SettingsBackupCard
+import com.stayfocused.app.ui.components.StrictLockBlockedDialog
 import com.stayfocused.app.ui.components.TakeABreakCard
 import com.stayfocused.app.ui.theme.MonkCard
 import com.stayfocused.app.ui.theme.MonkEmber
@@ -86,9 +97,19 @@ fun DashboardScreen(
 
     val appLimits by database.appLimitDao().getAllAppLimits().collectAsState(initial = emptyList())
     val activeBreak by database.breakSessionDao().getActiveBreak().collectAsState(initial = null)
-    val activeProfiles by database.focusProfileDao().getActiveProfiles().collectAsState(initial = emptyList())
+    val profiles by database.focusProfileDao().getAllProfiles().collectAsState(initial = emptyList())
+    val activeProfile = remember(profiles) { profiles.firstOrNull { it.isActive } }
+    val activeStrictSession by database.strictSessionDao().getActiveStrictSession().collectAsState(initial = null)
     val blockedDomains by database.blockedDomainDao().getAllBlockedDomains().collectAsState(initial = emptyList())
     val hasBlockedDomains = remember(blockedDomains) { blockedDomains.any { it.isBlocked } }
+
+    val switchManager = remember(database) { ProfileSwitchManager(database) }
+    var blockedStrictProfile by remember { mutableStateOf<FocusProfileEntity?>(null) }
+
+    var showExportDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var selectedExportUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedImportUri by remember { mutableStateOf<Uri?>(null) }
 
     // Calculate total daily tracked usage
     val totalUsedMinutes = (appLimits.sumOf { it.currentDayUsageMs } / (60 * 1000L)).toInt()
@@ -115,6 +136,24 @@ fun DashboardScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            selectedExportUri = uri
+            showExportDialog = true
+        }
+    }
+
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            selectedImportUri = uri
+            showImportDialog = true
         }
     }
 
@@ -185,6 +224,31 @@ fun DashboardScreen(
             }
         }
 
+        // Quick Focus Profile Switcher
+        item {
+            QuickProfileChipRow(
+                profiles = profiles,
+                onProfileClick = { targetProfile ->
+                    scope.launch(Dispatchers.IO) {
+                        val decision = switchManager.switchProfileAtomically(targetProfile)
+                        withContext(Dispatchers.Main) {
+                            when (decision) {
+                                is ProfileSwitchDecision.AlreadyActive -> {
+                                    // Already active, no-op
+                                }
+                                is ProfileSwitchDecision.BlockedByStrictMode -> {
+                                    blockedStrictProfile = decision.targetProfile
+                                }
+                                is ProfileSwitchDecision.ImmediateSwitch -> {
+                                    Toast.makeText(context, "Activated profile: ${targetProfile.name}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+        }
+
         // Circular Usage Dial Card
         item {
             Card(
@@ -226,7 +290,7 @@ fun DashboardScreen(
         }
 
         // Active Focus Profile Banner (if any)
-        if (activeProfiles.isNotEmpty()) {
+        if (activeProfile != null) {
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
@@ -249,7 +313,7 @@ fun DashboardScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Active Profile: ${activeProfiles.first().name}",
+                                text = "Active Profile: ${activeProfile.name}",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = MonkText
@@ -313,6 +377,18 @@ fun DashboardScreen(
             )
         }
 
+        // Encrypted Settings Backup Card
+        item {
+            SettingsBackupCard(
+                onExportClick = {
+                    createDocumentLauncher.launch("monk_mode_backup.json")
+                },
+                onImportClick = {
+                    openDocumentLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+                }
+            )
+        }
+
         // OEM autostart shortcut (if resolvable on Realme/ColorOS/HyperOS)
         if (autostartIntent != null) {
             item {
@@ -331,5 +407,117 @@ fun DashboardScreen(
         item {
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (showExportDialog && selectedExportUri != null) {
+        ExportPasswordDialog(
+            onDismiss = {
+                showExportDialog = false
+                selectedExportUri = null
+            },
+            onConfirm = { password ->
+                val uri = selectedExportUri
+                showExportDialog = false
+                selectedExportUri = null
+                if (uri != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val backupManager = SettingsBackupManager(database)
+                            val encryptedJson = backupManager.exportEncryptedBackup(password)
+                            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                                outputStream.bufferedWriter().use { it.write(encryptedJson) }
+                            }
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Encrypted settings exported successfully", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    if (showImportDialog && selectedImportUri != null) {
+        ImportPasswordDialog(
+            onDismiss = {
+                showImportDialog = false
+                selectedImportUri = null
+            },
+            onConfirm = { password ->
+                val uri = selectedImportUri
+                showImportDialog = false
+                selectedImportUri = null
+                if (uri != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val maxSizeBytes = 2 * 1024 * 1024 // 2 MB budget
+                            val content = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                val buffer = ByteArray(8192)
+                                val outputStream = java.io.ByteArrayOutputStream()
+                                var bytesRead: Int
+                                var totalBytes = 0
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    totalBytes += bytesRead
+                                    if (totalBytes > maxSizeBytes) {
+                                        throw IllegalArgumentException("Backup file exceeds maximum allowed size (2 MB)")
+                                    }
+                                    outputStream.write(buffer, 0, bytesRead)
+                                }
+                                outputStream.toString(Charsets.UTF_8.name())
+                            } ?: ""
+                            val backupManager = SettingsBackupManager(database)
+                            val result = backupManager.importEncryptedBackup(content, password)
+                            withContext(Dispatchers.Main) {
+                                when (result) {
+                                    is SettingsImportResult.Success -> {
+                                        Toast.makeText(
+                                            context,
+                                            "Restored ${result.limitsImported} limits, ${result.domainsImported} domains, ${result.profilesImported} profiles",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                    is SettingsImportResult.BlockedByStrictMode -> {
+                                        Toast.makeText(
+                                            context,
+                                            "Import rejected: Cannot modify settings while Strict Mode is active",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                    is SettingsImportResult.DecryptionFailed -> {
+                                        Toast.makeText(
+                                            context,
+                                            "Decryption failed: Incorrect passphrase or corrupted backup",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                    is SettingsImportResult.InvalidPayload -> {
+                                        Toast.makeText(
+                                            context,
+                                            "Invalid backup file: ${result.message}",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    blockedStrictProfile?.let { target ->
+        StrictLockBlockedDialog(
+            targetProfile = target,
+            onDismiss = { blockedStrictProfile = null }
+        )
     }
 }
