@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.stayfocused.app.data.local.entities.FocusProfileEntity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -576,10 +577,24 @@ fun StrictLockScreen(
             onDismiss = { showArmDialog = false },
             onArm = { durationMinutes, profileId, challenge ->
                 scope.launch(Dispatchers.IO) {
+                    val allProfiles = database.focusProfileDao().getAllProfilesSync()
+                    val targetProfileId = if (allProfiles.none { it.id == profileId }) {
+                        database.focusProfileDao().upsertProfile(
+                            FocusProfileEntity(
+                                name = "Deep Work",
+                                isActive = true,
+                                isStrictMode = true,
+                                activeDaysMask = 127
+                            )
+                        )
+                    } else {
+                        profileId
+                    }
+
                     val now = System.currentTimeMillis()
                     val targetEnd = now + (durationMinutes * 60 * 1000L)
                     val newSession = StrictSessionEntity(
-                        profileId = profileId,
+                        profileId = targetProfileId,
                         startTime = now,
                         targetEndTime = targetEnd,
                         startElapsedRealtime = SystemClock.elapsedRealtime(),
@@ -587,7 +602,7 @@ fun StrictLockScreen(
                         isActive = true
                     )
                     database.strictSessionDao().insertSession(newSession)
-                    database.focusProfileDao().switchToProfile(profileId)
+                    database.focusProfileDao().switchToProfile(targetProfileId)
 
                     database.failsafeLogDao().insertLog(
                         FailsafeLogEntity(
@@ -660,10 +675,25 @@ fun StrictLockScreen(
                         return@launch
                     }
 
-                    if (entity.id == 0L) {
-                        database.strictScheduleDao().insertSchedule(entity)
+                    val allProfiles = database.focusProfileDao().getAllProfilesSync()
+                    val targetProfileId = if (allProfiles.none { it.id == entity.profileId }) {
+                        database.focusProfileDao().upsertProfile(
+                            FocusProfileEntity(
+                                name = "Deep Work",
+                                isActive = true,
+                                isStrictMode = true,
+                                activeDaysMask = 127
+                            )
+                        )
                     } else {
-                        database.strictScheduleDao().updateSchedule(entity)
+                        entity.profileId
+                    }
+                    val toSave = entity.copy(profileId = targetProfileId)
+
+                    if (toSave.id == 0L) {
+                        database.strictScheduleDao().insertSchedule(toSave)
+                    } else {
+                        database.strictScheduleDao().updateSchedule(toSave)
                     }
                     StrictScheduleScheduler.scheduleNextBoundaryAsync(context)
                     withContext(Dispatchers.Main) {

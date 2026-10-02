@@ -97,6 +97,29 @@ class MainActivity : ComponentActivity() {
         WatchdogWorker.enqueuePeriodicWatchdog(applicationContext)
         com.stayfocused.app.worker.WeeklyReflectionScheduler.scheduleWeeklyReflection(applicationContext)
 
+        // Pre-seed default profiles if database is empty
+        lifecycleScope.launch(Dispatchers.IO) {
+            val profileDao = database.focusProfileDao()
+            if (profileDao.getAllProfilesSync().isEmpty()) {
+                profileDao.upsertProfile(
+                    com.stayfocused.app.data.local.entities.FocusProfileEntity(
+                        name = "Deep Work",
+                        isActive = true,
+                        isStrictMode = true,
+                        activeDaysMask = 127
+                    )
+                )
+                profileDao.upsertProfile(
+                    com.stayfocused.app.data.local.entities.FocusProfileEntity(
+                        name = "Personal",
+                        isActive = false,
+                        isStrictMode = false,
+                        activeDaysMask = 127
+                    )
+                )
+            }
+        }
+
         setContent {
             MaterialTheme(colorScheme = MonkModeColorScheme) {
                 Surface(
