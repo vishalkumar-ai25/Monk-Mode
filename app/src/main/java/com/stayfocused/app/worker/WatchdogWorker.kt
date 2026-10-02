@@ -24,6 +24,7 @@ import com.stayfocused.app.service.FocusAccessibilityService
 import com.stayfocused.app.tracker.UsageStatsTracker
 import com.stayfocused.app.ui.MainActivity
 import com.stayfocused.app.util.ProtectionPreferences
+import com.stayfocused.app.widget.FocusGlanceWidgetReceiver
 import java.util.concurrent.TimeUnit
 
 /**
@@ -182,6 +183,9 @@ class WatchdogWorker(
                     if (status == ProtectionOverallStatus.RED) {
                         postProtectionAlertNotification(applicationContext)
                     }
+                },
+                onUpdateGlanceWidget = {
+                    FocusGlanceWidgetReceiver.updateAll(applicationContext)
                 }
             )
         } catch (e: Exception) {
@@ -198,7 +202,7 @@ class WatchdogWorker(
         preferences: ProtectionPreferences? = null,
         healthEvaluator: (() -> ProtectionOverallStatus)? = null,
         onProtectionCompromised: ((ProtectionOverallStatus) -> Unit)? = null,
-        onUpdateGlanceWidget: (() -> Unit)? = null
+        onUpdateGlanceWidget: (suspend () -> Unit)? = null
     ): Result {
         val now = System.currentTimeMillis()
         preferences?.lastWatchdogRunTimestamp = now

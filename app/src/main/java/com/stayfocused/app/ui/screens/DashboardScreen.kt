@@ -25,13 +25,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import com.stayfocused.app.domain.FocusSummaryShareManager
+import com.stayfocused.app.domain.model.DailyFocusSummaryData
+import com.stayfocused.app.tracker.UsageStatsTracker
+import com.stayfocused.app.widget.FocusGlanceWidgetReceiver
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -110,6 +119,7 @@ fun DashboardScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var selectedExportUri by remember { mutableStateOf<Uri?>(null) }
     var selectedImportUri by remember { mutableStateOf<Uri?>(null) }
+    var isSharing by remember { mutableStateOf(false) }
 
     // Calculate total daily tracked usage
     val totalUsedMinutes = (appLimits.sumOf { it.currentDayUsageMs } / (60 * 1000L)).toInt()
@@ -131,6 +141,7 @@ fun DashboardScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 refreshHealth()
+                FocusGlanceWidgetReceiver.triggerUpdateAsync(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -285,6 +296,58 @@ fun DashboardScreen(
                         text = "${appLimits.size} active app limit${if (appLimits.size == 1) "" else "s"} monitored",
                         style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            if (isSharing) return@OutlinedButton
+                            isSharing = true
+                            scope.launch {
+                                try {
+                                    val shareManager = FocusSummaryShareManager(context)
+                                    val startOfToday = UsageStatsTracker(context).getStartOfToday()
+                                    val blockedDistractions = database.suppressedNotificationDao().getSuppressedCountSince(startOfToday)
+                                    val activeProfileName = activeProfile?.name
+                                    val dateFormatted = LocalDate.now().format(
+                                        DateTimeFormatter.ofPattern("MMM d, yyyy")
+                                    )
+                                    val summaryData = DailyFocusSummaryData(
+                                        dateText = dateFormatted,
+                                        usedMinutes = totalUsedMinutes,
+                                        targetMinutes = dailyTargetMinutes,
+                                        activeLimitsCount = appLimits.size,
+                                        blockedDistractionsCount = blockedDistractions,
+                                        activeProfileName = activeProfileName
+                                    )
+                                    shareManager.shareDailySummary(summaryData)
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Could not share summary: ${e.message ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+                                    }
+                                } finally {
+                                    isSharing = false
+                                }
+                            }
+                        },
+                        enabled = !isSharing,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkText)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = if (isSharing) MonkMuted else MonkEmber,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isSharing) "Preparing..." else "Share Today",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }

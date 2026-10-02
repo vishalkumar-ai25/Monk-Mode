@@ -222,4 +222,22 @@ class WatchdogWorkerTest {
         val prefs = ProtectionPreferences(context)
         assertTrue("Alert timestamp should be recorded", prefs.lastRedAlertTimestamp > 0L)
     }
+
+    @Test
+    fun testWatchdogInvokesGlanceWidgetUpdateCallback() = runBlocking {
+        var widgetUpdateTriggered = false
+        val worker = WatchdogWorker(context, mockk(relaxed = true))
+        val tracker = UsageStatsTracker(context, appOpsChecker = { true }, usageStatsProvider = { _, _ -> emptyMap() })
+
+        val result = worker.executeWatchdog(
+            database = db,
+            usageTracker = tracker,
+            isServiceAlive = true,
+            onServiceDead = {},
+            onUpdateGlanceWidget = { widgetUpdateTriggered = true }
+        )
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue("Watchdog execution must trigger glance widget refresh callback", widgetUpdateTriggered)
+    }
 }
