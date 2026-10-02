@@ -145,6 +145,17 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/focus_glance_widget_info" />
         </receiver>
+
+        <!-- Strict Schedule Alarm and Time/Timezone Change Receiver -->
+        <receiver
+            android:name=".receiver.StrictScheduleReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.stayfocused.app.action.STRICT_SCHEDULE_ALARM" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

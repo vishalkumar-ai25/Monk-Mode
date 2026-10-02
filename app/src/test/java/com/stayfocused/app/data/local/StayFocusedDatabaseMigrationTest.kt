@@ -228,4 +228,60 @@ class StayFocusedDatabaseMigrationTest {
         assertEquals("BOOT_GRACE_WINDOW_USED", logCursor.getString(1))
         logCursor.close()
     }
+
+    @Test
+    fun migrate4To5_preservesExistingDataAndCreatesStrictSchedulesTable() {
+        // 1. Create database at version 4
+        var db = helper.createDatabase(TEST_DB + "-v4", 4)
+
+        db.execSQL(
+            "INSERT INTO focus_profiles (id, name, isActive, isStrictMode, activeDaysMask) " +
+                "VALUES (1, 'Work Profile', 1, 1, 127)"
+        )
+        db.execSQL(
+            "INSERT INTO strict_sessions (id, profileId, startTime, targetEndTime, delayedUnlockDurationMs, isActive) " +
+                "VALUES (1, 1, 4000000, 5000000, 86400000, 1)"
+        )
+        db.close()
+
+        // 2. Run migration 4 -> 5
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v4",
+            5,
+            true,
+            StayFocusedDatabase.MIGRATION_4_5
+        )
+
+        // 3. Verify strict_sessions data survived with default column values
+        val sessionCursor = db.query("SELECT id, profileId, startTime, targetEndTime, delayedUnlockDurationMs, isActive, startElapsedRealtime, deactivationChallenge FROM strict_sessions WHERE id = 1")
+        assertTrue(sessionCursor.moveToFirst())
+        assertEquals(1L, sessionCursor.getLong(0))
+        assertEquals(1L, sessionCursor.getLong(1))
+        assertEquals(4000000L, sessionCursor.getLong(2))
+        assertEquals(5000000L, sessionCursor.getLong(3))
+        assertEquals(86400000L, sessionCursor.getLong(4))
+        assertEquals(1, sessionCursor.getInt(5))
+        assertEquals(0L, sessionCursor.getLong(6))
+        assertEquals("EXPIRATION_ONLY", sessionCursor.getString(7))
+        sessionCursor.close()
+
+        // 4. Verify strict_schedules table was created and can accept inserts
+        db.execSQL(
+            "INSERT INTO strict_schedules (name, daysOfWeekMask, startMinuteOfDay, endMinuteOfDay, profileId, deactivationChallenge, isEnabled, dismissedUntilEpochMs, createdAt) " +
+                "VALUES ('Workday Focus', 31, 540, 1020, 1, 'RANDOM_TEXT', 1, 0, 7000000)"
+        )
+        val scheduleCursor = db.query("SELECT id, name, daysOfWeekMask, startMinuteOfDay, endMinuteOfDay, profileId, deactivationChallenge, isEnabled, dismissedUntilEpochMs FROM strict_schedules WHERE name = 'Workday Focus'")
+        assertTrue(scheduleCursor.moveToFirst())
+        assertEquals(1L, scheduleCursor.getLong(0))
+        assertEquals("Workday Focus", scheduleCursor.getString(1))
+        assertEquals(31, scheduleCursor.getInt(2))
+        assertEquals(540, scheduleCursor.getInt(3))
+        assertEquals(1020, scheduleCursor.getInt(4))
+        assertEquals(1L, scheduleCursor.getLong(5))
+        assertEquals("RANDOM_TEXT", scheduleCursor.getString(6))
+        assertEquals(1, scheduleCursor.getInt(7))
+        assertEquals(0L, scheduleCursor.getLong(8))
+        scheduleCursor.close()
+    }
 }
+

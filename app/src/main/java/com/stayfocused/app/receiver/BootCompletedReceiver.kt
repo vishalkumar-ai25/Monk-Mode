@@ -48,8 +48,11 @@ class BootCompletedReceiver : BroadcastReceiver() {
                                 success = true
                             )
                         )
+
+                        // Immediately reconcile active strict schedules and arm if inside scheduled window
+                        StrictScheduleReceiver().reconcileSchedules(context, db)
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to record boot grace window in failsafe log", e)
+                        Log.w(TAG, "Failed during boot reconciliation in receiver", e)
                     } finally {
                         pendingResult.finish()
                     }

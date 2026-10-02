@@ -240,4 +240,22 @@ class WatchdogWorkerTest {
         assertEquals(ListenableWorker.Result.success(), result)
         assertTrue("Watchdog execution must trigger glance widget refresh callback", widgetUpdateTriggered)
     }
+
+    @Test
+    fun testWatchdogInvokesReconcileStrictSchedulesCallback() = runBlocking {
+        var scheduleReconcileTriggered = false
+        val worker = WatchdogWorker(context, mockk(relaxed = true))
+        val tracker = UsageStatsTracker(context, appOpsChecker = { true }, usageStatsProvider = { _, _ -> emptyMap() })
+
+        val result = worker.executeWatchdog(
+            database = db,
+            usageTracker = tracker,
+            isServiceAlive = true,
+            onServiceDead = {},
+            onReconcileStrictSchedules = { scheduleReconcileTriggered = true }
+        )
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue("Watchdog execution must trigger strict schedule reconciliation callback", scheduleReconcileTriggered)
+    }
 }

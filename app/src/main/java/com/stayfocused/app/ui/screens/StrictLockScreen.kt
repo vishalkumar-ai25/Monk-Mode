@@ -3,6 +3,7 @@ package com.stayfocused.app.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,8 +47,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stayfocused.app.BuildConfig
 import com.stayfocused.app.data.local.StayFocusedDatabase
+import com.stayfocused.app.data.local.entities.FailsafeLogEntity
+import com.stayfocused.app.data.local.entities.StrictScheduleEntity
+import com.stayfocused.app.data.local.entities.StrictSessionEntity
+import com.stayfocused.app.domain.ChallengeQuote
+import com.stayfocused.app.domain.RandomTextChallengeEngine
 import com.stayfocused.app.strict.FailsafeManager
+import com.stayfocused.app.strict.StrictScheduleScheduler
+import com.stayfocused.app.ui.components.ArmStrictSessionDialog
 import com.stayfocused.app.ui.components.FailsafeLogCard
+import com.stayfocused.app.ui.components.FocusSchedulesCard
+import com.stayfocused.app.ui.components.RandomTextChallengeDialog
+import com.stayfocused.app.ui.components.ScheduleConfigDialog
 import com.stayfocused.app.ui.theme.MonkCard
 import com.stayfocused.app.ui.theme.MonkCardAlt
 import com.stayfocused.app.ui.theme.MonkDanger
@@ -72,9 +83,21 @@ fun StrictLockScreen(
     val scope = rememberCoroutineScope()
 
     val activeStrictSession by database.strictSessionDao().getActiveStrictSession().collectAsState(initial = null)
+    val schedules by database.strictScheduleDao().getAllSchedules().collectAsState(initial = emptyList())
+    val profiles by database.focusProfileDao().getAllProfiles().collectAsState(initial = emptyList())
     val failsafeLogs by database.failsafeLogDao().getAllLogs().collectAsState(initial = emptyList())
+
+    val isStrictActive = activeStrictSession != null && activeStrictSession!!.isActive
+
+    // Dialog States
+    var showArmDialog by remember { mutableStateOf(false) }
+    var showScheduleConfigDialog by remember { mutableStateOf(false) }
+    var editingSchedule by remember { mutableStateOf<StrictScheduleEntity?>(null) }
+    var activeChallengeQuote by remember { mutableStateOf<ChallengeQuote?>(null) }
     var generatedRecoveryCode by remember { mutableStateOf<String?>(null) }
     var enteredRecoveryCode by remember { mutableStateOf("") }
+
+    val randomTextEngine = remember { RandomTextChallengeEngine() }
 
     LazyColumn(
         modifier = modifier
@@ -86,7 +109,7 @@ fun StrictLockScreen(
         item {
             Column {
                 Text(
-                    text = "Strict Mode & Failsafes",
+                    text = "Strict Mode & Schedules",
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
@@ -94,10 +117,171 @@ fun StrictLockScreen(
                     )
                 )
                 Text(
-                    text = "Irreversible anti-tamper controls with multi-tiered emergency safety valves",
+                    text = "Irreversible anti-tamper controls and recurring focus schedule enforcement",
                     style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                 )
             }
+        }
+
+        // Active Strict Session Status & Arming Card
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (isStrictActive) MonkDanger else MonkLine,
+                        shape = RoundedCornerShape(18.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .background(
+                                        color = if (isStrictActive) MonkDanger else MonkSage,
+                                        shape = CircleShape
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (isStrictActive) "Strict Mode: ARMED" else "Strict Mode: INACTIVE",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isStrictActive) MonkDanger else MonkText
+                                    )
+                                )
+                                val subtext = if (isStrictActive) {
+                                    val now = System.currentTimeMillis()
+                                    val target = activeStrictSession!!.targetEndTime
+                                    val remainingMin = maxOf(0L, (target - now) / (60 * 1000L))
+                                    val remainingHours = remainingMin / 60
+                                    val mins = remainingMin % 60
+                                    "Locked for next ${remainingHours}h ${mins}m"
+                                } else {
+                                    "Anti-Tamper protection stands ready"
+                                }
+                                Text(
+                                    text = subtext,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 12.sp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (isStrictActive) {
+                        val session = activeStrictSession!!
+                        val challengeType = session.deactivationChallenge
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MonkCardAlt, RoundedCornerShape(12.dp))
+                                .border(1.dp, MonkLine, RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Deactivation Challenge",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MonkMuted
+                                    )
+                                    val badge = when (challengeType) {
+                                        "RANDOM_TEXT" -> "Stoic Quote Verification"
+                                        "COOL_DOWN" -> "24h Delayed Unlock"
+                                        else -> "Locked Until Expiration"
+                                    }
+                                    Text(
+                                        text = badge,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = MonkEmber
+                                    )
+                                }
+
+                                if (challengeType == "RANDOM_TEXT") {
+                                    Button(
+                                        onClick = {
+                                            activeChallengeQuote = randomTextEngine.getRandomQuote()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MonkEmber,
+                                            contentColor = MonkInk
+                                        )
+                                    ) {
+                                        Text("Type Challenge", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Button(
+                            onClick = { showArmDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MonkEmber,
+                                contentColor = MonkInk
+                            )
+                        ) {
+                            Text("Arm Strict Mode Now", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Focus Schedules Card
+        item {
+            FocusSchedulesCard(
+                schedules = schedules,
+                profiles = profiles,
+                isStrictModeActive = isStrictActive,
+                onToggleSchedule = { scheduleId, isEnabled ->
+                    scope.launch(Dispatchers.IO) {
+                        database.strictScheduleDao().setScheduleEnabled(scheduleId, isEnabled)
+                        StrictScheduleScheduler.scheduleNextBoundaryAsync(context)
+                    }
+                },
+                onAddScheduleClick = {
+                    editingSchedule = null
+                    showScheduleConfigDialog = true
+                },
+                onEditScheduleClick = { schedule ->
+                    editingSchedule = schedule
+                    showScheduleConfigDialog = true
+                },
+                onDeleteScheduleClick = { scheduleId ->
+                    scope.launch(Dispatchers.IO) {
+                        database.strictScheduleDao().deleteSchedule(scheduleId)
+                        StrictScheduleScheduler.scheduleNextBoundaryAsync(context)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Schedule deleted", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onLockedActionAttempt = {
+                    Toast.makeText(context, "Schedules cannot be modified while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                }
+            )
         }
 
         // Anti-Tamper Status Card
@@ -310,6 +494,17 @@ fun StrictLockScreen(
                                 onClick = {
                                     scope.launch(Dispatchers.IO) {
                                         val success = failsafeManager.verifyAndConsumeRecoveryCode(enteredRecoveryCode.trim())
+                                        if (success) {
+                                            val now = System.currentTimeMillis()
+                                            val nowZdt = java.time.ZonedDateTime.now(java.time.ZoneId.systemDefault())
+                                            val engine = com.stayfocused.app.domain.StrictScheduleEngine()
+                                            val enabledSchedules = database.strictScheduleDao().getEnabledSchedulesSync()
+                                            val activeSchedules = engine.getActiveSchedules(enabledSchedules, nowZdt, now)
+                                            activeSchedules.forEach { schedule ->
+                                                val windowEnd = engine.calculateCurrentWindowEndTime(schedule, nowZdt)
+                                                database.strictScheduleDao().setDismissedUntil(schedule.id, windowEnd)
+                                            }
+                                        }
                                         withContext(Dispatchers.Main) {
                                             if (success) {
                                                 enteredRecoveryCode = ""
@@ -372,6 +567,112 @@ fun StrictLockScreen(
         item {
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    // Arm Strict Session Dialog
+    if (showArmDialog) {
+        ArmStrictSessionDialog(
+            profiles = profiles,
+            onDismiss = { showArmDialog = false },
+            onArm = { durationMinutes, profileId, challenge ->
+                scope.launch(Dispatchers.IO) {
+                    val now = System.currentTimeMillis()
+                    val targetEnd = now + (durationMinutes * 60 * 1000L)
+                    val newSession = StrictSessionEntity(
+                        profileId = profileId,
+                        startTime = now,
+                        targetEndTime = targetEnd,
+                        startElapsedRealtime = SystemClock.elapsedRealtime(),
+                        deactivationChallenge = challenge,
+                        isActive = true
+                    )
+                    database.strictSessionDao().insertSession(newSession)
+                    database.focusProfileDao().switchToProfile(profileId)
+
+                    database.failsafeLogDao().insertLog(
+                        FailsafeLogEntity(
+                            timestamp = now,
+                            eventType = "STRICT_SESSION_ARMED",
+                            details = "User manually armed Strict Mode for ${durationMinutes}m with challenge $challenge",
+                            success = true
+                        )
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        showArmDialog = false
+                        Toast.makeText(context, "Strict Mode armed for ${durationMinutes}m", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
+
+    // Random Text Stoic Challenge Dialog
+    if (activeChallengeQuote != null) {
+        RandomTextChallengeDialog(
+            quote = activeChallengeQuote!!,
+            onDismiss = { activeChallengeQuote = null },
+            onSuccess = {
+                scope.launch(Dispatchers.IO) {
+                    val now = System.currentTimeMillis()
+                    val nowZdt = java.time.ZonedDateTime.now(java.time.ZoneId.systemDefault())
+                    val engine = com.stayfocused.app.domain.StrictScheduleEngine()
+                    database.strictSessionDao().deactivateAllSessions()
+
+                    val enabledSchedules = database.strictScheduleDao().getEnabledSchedulesSync()
+                    val activeSchedules = engine.getActiveSchedules(enabledSchedules, nowZdt, now)
+                    activeSchedules.forEach { schedule ->
+                        val windowEnd = engine.calculateCurrentWindowEndTime(schedule, nowZdt)
+                        database.strictScheduleDao().setDismissedUntil(schedule.id, windowEnd)
+                    }
+
+                    database.failsafeLogDao().insertLog(
+                        FailsafeLogEntity(
+                            timestamp = now,
+                            eventType = "QUOTE_CHALLENGE_SOLVED",
+                            details = "User accurately completed stoic quote challenge; Strict Mode disarmed",
+                            success = true
+                        )
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        activeChallengeQuote = null
+                        Toast.makeText(context, "Stoic challenge verified! Strict Mode disarmed.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
+    }
+
+    // Schedule Config Modal
+    if (showScheduleConfigDialog) {
+        ScheduleConfigDialog(
+            initialSchedule = editingSchedule,
+            profiles = profiles,
+            onDismiss = { showScheduleConfigDialog = false },
+            onSave = { entity ->
+                scope.launch(Dispatchers.IO) {
+                    val active = database.strictSessionDao().getActiveStrictSessionSync()
+                    if (active != null && active.isActive) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Cannot save schedules while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                        }
+                        return@launch
+                    }
+
+                    if (entity.id == 0L) {
+                        database.strictScheduleDao().insertSchedule(entity)
+                    } else {
+                        database.strictScheduleDao().updateSchedule(entity)
+                    }
+                    StrictScheduleScheduler.scheduleNextBoundaryAsync(context)
+                    withContext(Dispatchers.Main) {
+                        showScheduleConfigDialog = false
+                        Toast.makeText(context, "Focus schedule saved", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
     }
 
     // Recovery Code Dialog — styled with Monk tokens
@@ -441,8 +742,6 @@ fun StrictLockScreen(
 
 /**
  * Single flat row for a failsafe layer.
- * Uses a small serif numeral on the left, title + description on the right,
- * with an optional content slot for action widgets.
  */
 @Composable
 private fun FailsafeLayerRow(
@@ -455,7 +754,6 @@ private fun FailsafeLayerRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
     ) {
-        // Serif numeral
         Text(
             text = numeral,
             fontFamily = FontFamily.Serif,

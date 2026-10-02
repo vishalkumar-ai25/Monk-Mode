@@ -12,6 +12,7 @@ import com.stayfocused.app.data.local.dao.BreakSessionDao
 import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.FocusProfileDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
+import com.stayfocused.app.data.local.dao.StrictScheduleDao
 import com.stayfocused.app.data.local.dao.StrictSessionDao
 import com.stayfocused.app.data.local.dao.SuppressedNotificationDao
 import com.stayfocused.app.data.local.entities.AppLimitEntity
@@ -24,6 +25,7 @@ import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
 import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
+import com.stayfocused.app.data.local.entities.StrictScheduleEntity
 import com.stayfocused.app.data.local.entities.StrictSessionEntity
 import com.stayfocused.app.data.local.entities.SuppressedNotificationEntity
 import com.stayfocused.app.data.local.entities.UnlockEventEntity
@@ -36,6 +38,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
  * - Version 2: Baseline MVP schema with app limits, blocked domains, recovery codes, and strict sessions.
  * - Version 3: Added `failsafe_logs` table (Phase 15 anti-tamper failsafe audit logging).
  * - Version 4: Added `reason` column to `break_sessions` table (Phase 9 friction-based breaks).
+ * - Version 5: Added `strict_schedules` table and updated `strict_sessions` with hardware monotonic baseline and challenge type (Phase 16).
  */
 @Database(
     entities = [
@@ -45,6 +48,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         ProfileBlockedPackageEntity::class,
         ProfileBlockedDomainEntity::class,
         StrictSessionEntity::class,
+        StrictScheduleEntity::class,
         RecoveryCodeEntity::class,
         UnlockEventEntity::class,
         GeofenceProfileEntity::class,
@@ -53,7 +57,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         BreakSessionEntity::class,
         FailsafeLogEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -62,6 +66,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
     abstract fun blockedDomainDao(): BlockedDomainDao
     abstract fun focusProfileDao(): FocusProfileDao
     abstract fun strictSessionDao(): StrictSessionDao
+    abstract fun strictScheduleDao(): StrictScheduleDao
     abstract fun recoveryCodeDao(): RecoveryCodeDao
     abstract fun suppressedNotificationDao(): SuppressedNotificationDao
     abstract fun breakSessionDao(): BreakSessionDao
@@ -93,6 +98,28 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `strict_schedules` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`daysOfWeekMask` INTEGER NOT NULL, " +
+                        "`startMinuteOfDay` INTEGER NOT NULL, " +
+                        "`endMinuteOfDay` INTEGER NOT NULL, " +
+                        "`profileId` INTEGER NOT NULL, " +
+                        "`deactivationChallenge` TEXT NOT NULL, " +
+                        "`isEnabled` INTEGER NOT NULL, " +
+                        "`dismissedUntilEpochMs` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`profileId`) REFERENCES `focus_profiles`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_strict_schedules_profileId` ON `strict_schedules` (`profileId`)")
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `startElapsedRealtime` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `deactivationChallenge` TEXT NOT NULL DEFAULT 'EXPIRATION_ONLY'")
+            }
+        }
+
         @Volatile
         private var INSTANCE: StayFocusedDatabase? = null
 
@@ -103,7 +130,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                 INSTANCE = instance
                 instance

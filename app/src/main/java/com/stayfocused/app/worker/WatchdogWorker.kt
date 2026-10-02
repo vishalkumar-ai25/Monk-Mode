@@ -186,6 +186,10 @@ class WatchdogWorker(
                 },
                 onUpdateGlanceWidget = {
                     FocusGlanceWidgetReceiver.updateAll(applicationContext)
+                },
+                onReconcileStrictSchedules = {
+                    val receiver = com.stayfocused.app.receiver.StrictScheduleReceiver()
+                    receiver.reconcileSchedules(applicationContext, db)
                 }
             )
         } catch (e: Exception) {
@@ -202,7 +206,8 @@ class WatchdogWorker(
         preferences: ProtectionPreferences? = null,
         healthEvaluator: (() -> ProtectionOverallStatus)? = null,
         onProtectionCompromised: ((ProtectionOverallStatus) -> Unit)? = null,
-        onUpdateGlanceWidget: (suspend () -> Unit)? = null
+        onUpdateGlanceWidget: (suspend () -> Unit)? = null,
+        onReconcileStrictSchedules: (suspend () -> Unit)? = null
     ): Result {
         val now = System.currentTimeMillis()
         preferences?.lastWatchdogRunTimestamp = now
@@ -243,6 +248,9 @@ class WatchdogWorker(
         // 6. Purge suppressed notifications older than 7 days to preserve storage and privacy
         val retentionThreshold = now - (7 * 24 * 60 * 60 * 1000L)
         database.suppressedNotificationDao().clearOlderThan(retentionThreshold)
+
+        // 7. Reconcile active strict schedules and alarm boundaries
+        onReconcileStrictSchedules?.invoke()
 
         return Result.success()
     }

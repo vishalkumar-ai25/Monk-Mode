@@ -93,3 +93,40 @@
   - [x] Invoke adversarial code review (`code-reviewer`) and address all required findings (ClipData, off-thread Dispatchers.IO, suspending Watchdog worker update, widget 110dp layout, score depletion styling).
   - [x] Commit, merge to `main`, and push to `origin/main` (`451b0aa`).
 
+## Phase 16: Scheduled & Interactive Strict Mode Activation
+
+- [x] **Task 1: Room Database Schema Migration v4 -> v5 (TDD)**
+  - [x] Implement `StrictScheduleEntity.kt` and `StrictScheduleDao.kt`.
+  - [x] Update `StrictSessionEntity.kt` with `startElapsedRealtime: Long` and `deactivationChallenge: String`.
+  - [x] Implement `MIGRATION_4_5` in `StayFocusedDatabase.kt` and bump database version to 5.
+  - [x] Write and pass `StayFocusedDatabaseMigrationTest.kt` verifying v4 -> v5 migration.
+  - [x] Write and pass `StrictScheduleDaoTest.kt`.
+
+- [x] **Task 2: StrictScheduleEngine & RandomTextChallengeEngine Domain (TDD)**
+  - [x] Implement `StrictScheduleEngine.kt` (same-day, cross-midnight, bitmask, overlap resolution, next boundary).
+  - [x] Write and pass `StrictScheduleEngineTest.kt`.
+  - [x] Implement `RandomTextChallengeEngine.kt` (quotes, verbatim validation, anti-paste timing).
+  - [x] Write and pass `RandomTextChallengeEngineTest.kt`.
+
+- [x] **Task 3: Alarm Scheduling, Broadcast Receiver & Watchdog Reconciliation**
+  - [x] Implement `StrictScheduleScheduler.kt` with `canScheduleExactAlarms()` guard and safe fallback.
+  - [x] Implement `StrictScheduleReceiver.kt` handling alarms, clock changes, and boot events.
+  - [x] Register receiver in `AndroidManifest.xml` with `ACTION_TIME_CHANGED`, `ACTION_TIMEZONE_CHANGED`, `BOOT_COMPLETED`.
+  - [x] Wire schedule reconciliation into `WatchdogWorker.kt` and `BootCompletedReceiver.kt`.
+  - [x] Write and pass unit tests for scheduler, receiver, and watchdog reconciliation.
+
+- [x] **Task 4: Interactive Strict Mode UI in StrictLockScreen**
+  - [x] Build "Active Strict Mode" card with live countdown, active profile, and challenge disarm action.
+  - [x] Build "Arm Strict Mode Now" button + `ArmStrictSessionDialog`.
+  - [x] Build "Focus Schedules" card with day-of-week chips (M, T, W, T, F, S, S) and active state indicator.
+  - [x] Build "+ Add Schedule" and Edit modal (`ScheduleConfigDialog`).
+  - [x] Enforce anti-tamper lock: disable editing/deleting schedules when Strict Mode is active.
+  - [x] Build `RandomTextChallengeDialog` for stoic phrase typing.
+
+- [x] **Task 5: Verification, Code Review & On-Device Deployment**
+  - [x] Run full JVM unit test suite `./gradlew testDebugUnitTest` (230 tests passing).
+  - [x] Build debug APK `./gradlew assembleDebug` (0 errors).
+  - [x] Code review via `code-reviewer` subagent and resolved all findings.
+  - [x] Install on connected phone via ADB and verify live.
+
+

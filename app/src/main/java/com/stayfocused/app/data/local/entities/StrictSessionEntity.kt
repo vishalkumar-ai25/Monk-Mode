@@ -24,5 +24,7 @@ data class StrictSessionEntity(
     val targetEndTime: Long,
     val delayedUnlockRequestTime: Long? = null,
     val delayedUnlockDurationMs: Long = 24 * 60 * 60 * 1000L,
-    val isActive: Boolean = true
+    val isActive: Boolean = true,
+    val startElapsedRealtime: Long = 0L,
+    val deactivationChallenge: String = "EXPIRATION_ONLY"
 )
