@@ -87,9 +87,9 @@
   - [x] Wire widget refresh into `WatchdogWorker.kt` and `DashboardScreen.kt`.
   - [x] Update and pass `WatchdogWorkerTest.kt`.
 
-- [ ] **Task 4: Quality Gate, Code Review & Merge**
+- [x] **Task 4: Quality Gate, Code Review & Merge**
   - [x] Run full JVM unit test suite `./gradlew testDebugUnitTest` (100% pass - 202 tests).
   - [x] Assemble debug APK `./gradlew assembleDebug` (0 errors).
   - [x] Invoke adversarial code review (`code-reviewer`) and address all required findings (ClipData, off-thread Dispatchers.IO, suspending Watchdog worker update, widget 110dp layout, score depletion styling).
-  - [ ] Commit, merge to `main`, and push to `origin/main`.
+  - [x] Commit, merge to `main`, and push to `origin/main` (`451b0aa`).
 
