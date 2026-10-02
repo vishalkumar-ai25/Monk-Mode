@@ -54,3 +54,42 @@
   - [x] Invoke adversarial code review (`code-reviewer`) and address all required findings.
   - [x] Commit, merge to `main`, and push to `origin/main` (`11f4f4a`).
 
+---
+
+# Tasks: Wave 4 Implementation (Shareable Focus Summary & Glance Home Screen Widget)
+
+- [x] **Task 1: Architecture & Specs**
+  - [x] Write ADR-005: On-Device Shareable Focus Summary Card and Glance Home Screen Widget (`docs/adr/005-shareable-focus-summary-and-glance-widget.md`).
+  - [x] Write `docs/phase13_shareable_focus_summary_spec.md` & `tasks/dod/phase13_dod.md`.
+  - [x] Write `docs/phase14_glance_widget_spec.md` & `tasks/dod/phase14_dod.md`.
+
+- [x] **Task 2: Shareable Focus Summary Card (Phase 13 - TDD)**
+  - [x] Add FileProvider paths XML `app/src/main/res/xml/file_paths.xml`.
+  - [x] Register `androidx.core.content.FileProvider` in `app/src/main/AndroidManifest.xml`.
+  - [x] Implement `domain/model/FocusSummaryModels.kt` (`DailyFocusSummaryData`).
+  - [x] Implement `domain/FocusSummaryBitmapGenerator.kt` (Canvas 1080x1350 card renderer).
+  - [x] Write and pass `FocusSummaryBitmapGeneratorTest.kt`.
+  - [x] Implement `domain/FocusSummaryShareManager.kt` (cache writer & `Intent.ACTION_SEND` builder).
+  - [x] Write and pass `FocusSummaryShareManagerTest.kt`.
+  - [x] Add "Share Today" button to Daily Usage card in `DashboardScreen.kt`.
+
+- [x] **Task 3: Home-Screen Glance Widget (Phase 14 - TDD)**
+  - [x] Add Glance 1.1.1 dependencies to `gradle/libs.versions.toml` and `app/build.gradle.kts`.
+  - [x] Add widget resources: `res/xml/focus_glance_widget_info.xml` and `res/layout/widget_loading.xml`.
+  - [x] Register `FocusGlanceWidgetReceiver` in `AndroidManifest.xml`.
+  - [x] Implement `domain/model/FocusWidgetData.kt`.
+  - [x] Implement pure Kotlin `FocusWidgetDataEngine.kt`.
+  - [x] Write and pass `FocusWidgetDataEngineTest.kt`.
+  - [x] Implement `widget/FocusWidgetDialRenderer.kt` (Canvas dial renderer).
+  - [x] Write and pass `FocusWidgetDialRendererTest.kt`.
+  - [x] Implement `widget/FocusGlanceWidget.kt` and `widget/FocusGlanceWidgetReceiver.kt`.
+  - [x] Write and pass `FocusGlanceWidgetTest.kt`.
+  - [x] Wire widget refresh into `WatchdogWorker.kt` and `DashboardScreen.kt`.
+  - [x] Update and pass `WatchdogWorkerTest.kt`.
+
+- [ ] **Task 4: Quality Gate, Code Review & Merge**
+  - [x] Run full JVM unit test suite `./gradlew testDebugUnitTest` (100% pass - 202 tests).
+  - [x] Assemble debug APK `./gradlew assembleDebug` (0 errors).
+  - [x] Invoke adversarial code review (`code-reviewer`) and address all required findings (ClipData, off-thread Dispatchers.IO, suspending Watchdog worker update, widget 110dp layout, score depletion styling).
+  - [ ] Commit, merge to `main`, and push to `origin/main`.
+
