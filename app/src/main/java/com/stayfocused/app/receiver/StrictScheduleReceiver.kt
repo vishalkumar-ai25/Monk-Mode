@@ -104,6 +104,9 @@ class StrictScheduleReceiver(
             if (activeSession != null && activeSession.isActive) {
                 // If scheduled session reached its end time and no delayed unlock is pending
                 if (nowEpochMs >= activeSession.targetEndTime && activeSession.delayedUnlockRequestTime == null) {
+                    // Anti-tamper check: if continuously running on the same boot (startElapsedRealtime > 0L),
+                    // ensure hardware elapsed monotonic time matches or exceeds the expected wall-clock duration.
+                    // Note: If device rebooted, BootCompletedReceiver resets startElapsedRealtime to -1L.
                     val isContinuouslyRunning = activeSession.startElapsedRealtime > 0L && nowElapsedRealtime >= activeSession.startElapsedRealtime
                     val expectedDurationMs = activeSession.targetEndTime - activeSession.startTime
                     val actualElapsedMs = nowElapsedRealtime - activeSession.startElapsedRealtime

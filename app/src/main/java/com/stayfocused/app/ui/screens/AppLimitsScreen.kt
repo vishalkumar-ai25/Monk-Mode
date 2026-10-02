@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -440,14 +441,48 @@ fun AppLimitsScreen(
                 )
             },
             text = {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Daily Screen Time: ${minutesLimit.toInt()} minutes",
+                        text = "Daily Screen Time Limit:",
                         fontWeight = FontWeight.SemiBold,
                         color = MonkText
                     )
+
+                    // Quick Preset Chips (15m, 30m, 1h, 2h, Block Only)
+                    val minutePresets = listOf(15 to "15 min", 30 to "30 min", 60 to "1 hr", 120 to "2 hr", 0 to "Block Only")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        minutePresets.forEach { (mins, label) ->
+                            val isSelected = minutesLimit.toInt() == mins
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                    .clickable { minutesLimit = mins.toFloat() }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+
                     Text(
-                        text = if (minutesLimit.toInt() == 0) "No time limit (Block only)" else "Shield triggers once exceeded",
+                        text = if (minutesLimit.toInt() == 0) "Immediate Block (0 min)" else "Daily Limit: ${minutesLimit.toInt()} minutes",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MonkEmber
+                    )
+                    Text(
+                        text = if (minutesLimit.toInt() == 0) "App will be blocked whenever opened" else "App is locked immediately once ${minutesLimit.toInt()}m is reached",
                         fontSize = 11.sp,
                         color = MonkMuted
                     )

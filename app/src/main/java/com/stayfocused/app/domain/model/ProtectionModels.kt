@@ -7,7 +7,8 @@ enum class ProtectionCheckType {
     ACCESSIBILITY,
     VPN,
     BATTERY_OPTIMIZATION,
-    WATCHDOG
+    WATCHDOG,
+    USAGE_ACCESS
 }
 
 /**

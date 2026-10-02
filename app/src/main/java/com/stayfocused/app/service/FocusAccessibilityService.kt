@@ -19,9 +19,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * High-performance, thin OS Accessibility Service adapter for foreground app interception.
@@ -41,6 +44,7 @@ class FocusAccessibilityService : AccessibilityService() {
     var database: StayFocusedDatabase? = null
 
     private var lastForegroundPackage: String? = null
+    private var foregroundMonitorJob: kotlinx.coroutines.Job? = null
 
     // Boot grace period un-spoofable hardware check
     var isBootGracePeriodProvider: () -> Boolean = {
@@ -84,6 +88,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        foregroundMonitorJob?.cancel()
         serviceScope.cancel()
         overlayManager?.hideOverlay()
     }
@@ -100,6 +105,7 @@ class FocusAccessibilityService : AccessibilityService() {
     fun handlePackageChanged(packageName: String) {
         val target = packageName.trim()
         if (target.isEmpty() || target.equals(applicationContext.packageName, ignoreCase = true)) {
+            foregroundMonitorJob?.cancel()
             return
         }
 
@@ -138,6 +144,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
         when (decision) {
             is InterceptionResult.Block -> {
+                foregroundMonitorJob?.cancel()
                 val manager = overlayManager
                 val canDraw = manager?.canDrawOverlays() ?: false
                 Log.i(TAG, "Blocking package $target: ${decision.reason} | canDrawOverlays=$canDraw")
@@ -159,6 +166,48 @@ class FocusAccessibilityService : AccessibilityService() {
             is InterceptionResult.Allow -> {
                 // If user switched away from a blocked app to an allowed app or home launcher, dismiss overlay
                 overlayManager?.hideOverlay()
+                foregroundMonitorJob?.cancel()
+
+                // If app has active time limit, check asynchronously and poll every 5s while in foreground
+                if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0) {
+                    val limitMs = appLimit.dailyTimeLimitMinutes * 60 * 1000L
+                    foregroundMonitorJob = serviceScope.launch {
+                        while (isActive) {
+                            val current = usageStatsTracker?.queryPackageUsageToday(target) ?: 0L
+                            if (current >= limitMs) {
+                                val db = database
+                                if (db != null) {
+                                    try {
+                                        db.appLimitDao().updateUsageAndLaunches(
+                                            packageName = target,
+                                            usageMs = current,
+                                            launches = appLimit.currentDayLaunches
+                                        )
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to persist limit lockout for $target", e)
+                                    }
+                                }
+
+                                withContext(Dispatchers.Main) {
+                                    Log.i(TAG, "Limit expired in foreground for $target ($current >= $limitMs). Intercepting.")
+                                    val reason = BlockReason.LimitReached(
+                                        appName = appLimit.appName,
+                                        limitType = com.stayfocused.app.domain.model.LimitType.TIME_LIMIT,
+                                        used = current,
+                                        limit = limitMs
+                                    )
+                                    performGlobalAction(GLOBAL_ACTION_HOME)
+                                    overlayManager?.showOverlay(
+                                        reason = reason,
+                                        onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+                                    )
+                                }
+                                break
+                            }
+                            delay(5000L)
+                        }
+                    }
+                }
             }
         }
     }

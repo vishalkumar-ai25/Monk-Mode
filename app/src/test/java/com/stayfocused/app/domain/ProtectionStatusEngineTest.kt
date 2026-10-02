@@ -226,4 +226,15 @@ class ProtectionStatusEngineTest {
         val notExempted = engine.evaluateBatteryOptimization(isIgnoring = false)
         assertEquals(ProtectionCheckStatus.WARN, notExempted.status)
     }
+
+    @Test
+    fun testUsageAccessEvaluation() {
+        val granted = engine.evaluateUsageAccess(hasPermission = true)
+        assertEquals(ProtectionCheckStatus.PASS, granted.status)
+        assertEquals(ProtectionCheckType.USAGE_ACCESS, granted.type)
+
+        val denied = engine.evaluateUsageAccess(hasPermission = false)
+        assertEquals(ProtectionCheckStatus.FAIL, denied.status)
+        assertEquals("Grant", denied.actionLabel)
+    }
 }

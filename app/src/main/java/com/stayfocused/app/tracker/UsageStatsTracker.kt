@@ -83,6 +83,57 @@ class UsageStatsTracker(
     }
 
     /**
+     * Calculates the aggregate foreground screen time across all packages for the given window.
+     */
+    fun queryTotalDeviceScreenTimeMs(
+        startTime: Long = getStartOfToday(),
+        endTime: Long = System.currentTimeMillis()
+    ): Long {
+        return queryForegroundUsage(startTime, endTime).values.sum()
+    }
+
+    /**
+     * Queries the top used applications ordered by foreground time descending.
+     */
+    fun queryTopUsedApps(
+        limit: Int = 10,
+        startTime: Long = getStartOfToday(),
+        endTime: Long = System.currentTimeMillis()
+    ): List<AppUsageInfo> {
+        val usageMap = queryForegroundUsage(startTime, endTime)
+        if (usageMap.isEmpty()) return emptyList()
+
+        val pm = context.packageManager
+        return usageMap.entries
+            .sortedByDescending { it.value }
+            .take(limit)
+            .map { (pkg, usageMs) ->
+                val label = try {
+                    val appInfo = pm.getApplicationInfo(pkg, 0)
+                    pm.getApplicationLabel(appInfo).toString()
+                } catch (e: Exception) {
+                    pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                }
+                AppUsageInfo(
+                    packageName = pkg,
+                    appName = label,
+                    foregroundTimeMs = usageMs
+                )
+            }
+    }
+
+    /**
+     * Queries today's foreground duration in milliseconds for a single package.
+     */
+    fun queryPackageUsageToday(
+        packageName: String,
+        startTime: Long = getStartOfToday(),
+        endTime: Long = System.currentTimeMillis()
+    ): Long {
+        return queryForegroundUsage(startTime, endTime)[packageName.lowercase()] ?: 0L
+    }
+
+    /**
      * Synchronizes today's usage statistics into Room DB for all registered AppLimitEntity records.
      */
     suspend fun syncUsageWithDatabase(appLimitDao: AppLimitDao) {
@@ -133,7 +184,14 @@ class UsageStatsTracker(
                     context.packageName
                 )
             }
-            return mode == AppOpsManager.MODE_ALLOWED
+        return mode == AppOpsManager.MODE_ALLOWED
         }
     }
 }
+
+data class AppUsageInfo(
+    val packageName: String,
+    val appName: String,
+    val foregroundTimeMs: Long
+)
+

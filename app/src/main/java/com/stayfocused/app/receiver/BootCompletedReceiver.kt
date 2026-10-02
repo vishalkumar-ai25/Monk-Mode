@@ -49,6 +49,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
                             )
                         )
 
+                        // Reconcile active strict sessions across reboot (reset monotonic uptime counter)
+                        val active = db.strictSessionDao().getActiveStrictSessionSync()
+                        if (active != null && active.isActive) {
+                            db.strictSessionDao().updateSession(active.copy(startElapsedRealtime = -1L))
+                        }
+
                         // Immediately reconcile active strict schedules and arm if inside scheduled window
                         StrictScheduleReceiver().reconcileSchedules(context, db)
                     } catch (e: Exception) {

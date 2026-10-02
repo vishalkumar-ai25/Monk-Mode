@@ -55,6 +55,7 @@ import com.stayfocused.app.domain.ChallengeQuote
 import com.stayfocused.app.domain.RandomTextChallengeEngine
 import com.stayfocused.app.strict.FailsafeManager
 import com.stayfocused.app.strict.StrictScheduleScheduler
+import com.stayfocused.app.ui.TimeFormatter
 import com.stayfocused.app.ui.components.ArmStrictSessionDialog
 import com.stayfocused.app.ui.components.FailsafeLogCard
 import com.stayfocused.app.ui.components.FocusSchedulesCard
@@ -88,7 +89,8 @@ fun StrictLockScreen(
     val profiles by database.focusProfileDao().getAllProfiles().collectAsState(initial = emptyList())
     val failsafeLogs by database.failsafeLogDao().getAllLogs().collectAsState(initial = emptyList())
 
-    val isStrictActive = activeStrictSession != null && activeStrictSession!!.isActive
+    val currentSession = activeStrictSession
+    val isStrictActive = currentSession != null && currentSession.isActive
 
     // Dialog States
     var showArmDialog by remember { mutableStateOf(false) }
@@ -161,13 +163,11 @@ fun StrictLockScreen(
                                         color = if (isStrictActive) MonkDanger else MonkText
                                     )
                                 )
-                                val subtext = if (isStrictActive) {
+                                val subtext = if (isStrictActive && currentSession != null) {
                                     val now = System.currentTimeMillis()
-                                    val target = activeStrictSession!!.targetEndTime
-                                    val remainingMin = maxOf(0L, (target - now) / (60 * 1000L))
-                                    val remainingHours = remainingMin / 60
-                                    val mins = remainingMin % 60
-                                    "Locked for next ${remainingHours}h ${mins}m"
+                                    val target = currentSession.targetEndTime
+                                    val remainingMs = maxOf(0L, target - now)
+                                    "Locked: ${TimeFormatter.formatRemainingTime(remainingMs)} left • Deactivates ${TimeFormatter.formatExactDateTime(target)}"
                                 } else {
                                     "Anti-Tamper protection stands ready"
                                 }
@@ -181,9 +181,8 @@ fun StrictLockScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    if (isStrictActive) {
-                        val session = activeStrictSession!!
-                        val challengeType = session.deactivationChallenge
+                    if (isStrictActive && currentSession != null) {
+                        val challengeType = currentSession.deactivationChallenge
 
                         Box(
                             modifier = Modifier
@@ -575,7 +574,7 @@ fun StrictLockScreen(
         ArmStrictSessionDialog(
             profiles = profiles,
             onDismiss = { showArmDialog = false },
-            onArm = { durationMinutes, profileId, challenge ->
+            onArm = { targetEndTimeMs, profileId, challenge ->
                 scope.launch(Dispatchers.IO) {
                     val allProfiles = database.focusProfileDao().getAllProfilesSync()
                     val targetProfileId = if (allProfiles.none { it.id == profileId }) {
@@ -592,7 +591,7 @@ fun StrictLockScreen(
                     }
 
                     val now = System.currentTimeMillis()
-                    val targetEnd = now + (durationMinutes * 60 * 1000L)
+                    val targetEnd = maxOf(now + 60_000L, targetEndTimeMs)
                     val newSession = StrictSessionEntity(
                         profileId = targetProfileId,
                         startTime = now,
@@ -608,14 +607,14 @@ fun StrictLockScreen(
                         FailsafeLogEntity(
                             timestamp = now,
                             eventType = "STRICT_SESSION_ARMED",
-                            details = "User manually armed Strict Mode for ${durationMinutes}m with challenge $challenge",
+                            details = "User manually armed Strict Mode until ${TimeFormatter.formatExactDateTime(targetEnd)} with challenge $challenge",
                             success = true
                         )
                     )
 
                     withContext(Dispatchers.Main) {
                         showArmDialog = false
-                        Toast.makeText(context, "Strict Mode armed for ${durationMinutes}m", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Strict Mode armed until ${TimeFormatter.formatExactDateTime(targetEnd)}", Toast.LENGTH_LONG).show()
                     }
                 }
             }

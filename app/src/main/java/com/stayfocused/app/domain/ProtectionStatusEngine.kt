@@ -183,4 +183,27 @@ class ProtectionStatusEngine {
             }
         }
     }
+
+    /**
+     * Evaluates PACKAGE_USAGE_STATS permission via AppOps.
+     */
+    fun evaluateUsageAccess(hasPermission: Boolean): ProtectionCheckResult {
+        return if (hasPermission) {
+            ProtectionCheckResult(
+                type = ProtectionCheckType.USAGE_ACCESS,
+                status = ProtectionCheckStatus.PASS,
+                title = "Usage Access",
+                summary = "Active (screen time tracking & app limits armed)",
+                actionLabel = null
+            )
+        } else {
+            ProtectionCheckResult(
+                type = ProtectionCheckType.USAGE_ACCESS,
+                status = ProtectionCheckStatus.FAIL,
+                title = "Usage Access",
+                summary = "Permission needed to track screen time & enforce limits",
+                actionLabel = "Grant"
+            )
+        }
+    }
 }

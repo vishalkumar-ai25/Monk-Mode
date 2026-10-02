@@ -55,17 +55,69 @@ import com.stayfocused.app.ui.theme.MonkMuted
 import com.stayfocused.app.ui.theme.MonkSage
 import com.stayfocused.app.ui.theme.MonkText
 
+import com.stayfocused.app.ui.TimeFormatter
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+
 /**
- * Dialog for interactive on-demand arming of Strict Mode.
+ * Dialog for interactive on-demand arming of Strict Mode with multi-day presets
+ * and an exact expiration date & time picker matching the original Stay Focused UX.
  */
 @Composable
 fun ArmStrictSessionDialog(
     profiles: List<FocusProfileEntity>,
     onDismiss: () -> Unit,
-    onArm: (durationMinutes: Int, profileId: Long, challenge: String) -> Unit
+    onArm: (targetEndTimeMs: Long, profileId: Long, challenge: String) -> Unit
 ) {
-    val durationOptions = listOf(30, 60, 120, 240, 480)
-    var selectedDurationMinutes by remember { mutableIntStateOf(120) }
+    val context = LocalContext.current
+    val zoneId = remember { ZoneId.systemDefault() }
+
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Presets, 1: Expiration Time
+
+    // Preset options (hours & multi-day commitments)
+    val hourOptions = listOf(30L to "30m", 60L to "1h", 120L to "2h", 240L to "4h", 480L to "8h", 720L to "12h")
+    val dayOptions = listOf(
+        1L to "1 day",
+        2L to "2 days",
+        7L to "7 days",
+        15L to "15 days",
+        30L to "30 days",
+        45L to "45 days",
+        60L to "60 days",
+        75L to "75 days",
+        90L to "90 days"
+    )
+
+    var selectedPresetMinutes by remember { mutableLongStateOf(120L) } // default 2h
+
+    // Expiration date/time picker state
+    val currentZdt = remember { ZonedDateTime.now(zoneId) }
+    var selectedDayOffset by remember { mutableIntStateOf(1) } // 0=Today, 1=Tomorrow, 7=In a week
+    var expirationHour by remember { mutableIntStateOf(currentZdt.hour) }
+    var expirationMinute by remember { mutableIntStateOf((currentZdt.minute / 5) * 5) }
+
+    val calculatedTargetEndTimeMs = remember(selectedTab, selectedPresetMinutes, selectedDayOffset, expirationHour, expirationMinute) {
+        if (selectedTab == 0) {
+            System.currentTimeMillis() + (selectedPresetMinutes * 60 * 1000L)
+        } else {
+            val targetDate = LocalDate.now(zoneId).plusDays(selectedDayOffset.toLong())
+            val targetTime = LocalTime.of(
+                expirationHour.coerceIn(0, 23),
+                expirationMinute.coerceIn(0, 59)
+            )
+            val zdt = ZonedDateTime.of(targetDate, targetTime, zoneId)
+            val computedMs = zdt.toInstant().toEpochMilli()
+            if (computedMs <= System.currentTimeMillis()) {
+                // If computed time is in the past (e.g. today earlier hour), push to at least 15 mins from now
+                System.currentTimeMillis() + 15 * 60 * 1000L
+            } else {
+                computedMs
+            }
+        }
+    }
+
     var selectedProfileId by remember { mutableLongStateOf(profiles.firstOrNull()?.id ?: 1L) }
     var selectedChallenge by remember { mutableStateOf("EXPIRATION_ONLY") }
 
@@ -81,44 +133,310 @@ fun ArmStrictSessionDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(
-                    text = "Select focus duration:",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, color = MonkText)
-                )
-
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Mode Toggle Tabs (Presets vs Expiration Time)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MonkCardAlt, RoundedCornerShape(10.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    durationOptions.forEach { minutes ->
-                        val isSelected = selectedDurationMinutes == minutes
-                        Box(
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(if (selectedTab == 0) MonkEmber else Color.Transparent, RoundedCornerShape(8.dp))
+                            .clickable { selectedTab = 0 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Duration Presets",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selectedTab == 0) MonkInk else MonkMuted
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(if (selectedTab == 1) MonkEmber else Color.Transparent, RoundedCornerShape(8.dp))
+                            .clickable { selectedTab = 1 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Expiration Time",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selectedTab == 1) MonkInk else MonkMuted
+                        )
+                    }
+                }
+
+                if (selectedTab == 0) {
+                    // TAB 0: PRESET CHIPS
+                    Text(
+                        text = "Hours:",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold, color = MonkMuted)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        hourOptions.forEach { (minutes, label) ->
+                            val isSelected = selectedPresetMinutes == minutes
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                    .clickable { selectedPresetMinutes = minutes }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Multi-Day Commitments:",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold, color = MonkMuted)
+                    )
+                    // Row 1: 1d, 2d, 7d, 15d
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        dayOptions.take(4).forEach { (days, label) ->
+                            val minutes = days * 1440L
+                            val isSelected = selectedPresetMinutes == minutes
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isSelected) MonkSage else MonkCardAlt, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSelected) MonkSage else MonkLine, RoundedCornerShape(8.dp))
+                                    .clickable { selectedPresetMinutes = minutes }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+                    // Row 2: 30d, 45d, 60d, 75d, 90d
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        dayOptions.drop(4).forEach { (days, label) ->
+                            val minutes = days * 1440L
+                            val isSelected = selectedPresetMinutes == minutes
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isSelected) MonkSage else MonkCardAlt, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSelected) MonkSage else MonkLine, RoundedCornerShape(8.dp))
+                                    .clickable { selectedPresetMinutes = minutes }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${days}d",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // TAB 1: EXACT EXPIRATION TIME PICKER
+                    Text(
+                        text = "Target Date:",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold, color = MonkMuted)
+                    )
+                    val quickDates = listOf(
+                        0 to "Today",
+                        1 to "Tomorrow",
+                        2 to "+2 days",
+                        7 to "+7 days",
+                        15 to "+15 days",
+                        30 to "+30 days",
+                        90 to "+90 days"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        quickDates.take(4).forEach { (offset, label) ->
+                            val isSelected = selectedDayOffset == offset
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                    .clickable { selectedDayOffset = offset }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        quickDates.drop(4).forEach { (offset, label) ->
+                            val isSelected = selectedDayOffset == offset
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                    .clickable { selectedDayOffset = offset }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Target Time (24h):",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold, color = MonkMuted)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Hour Selector
+                        Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
-                                .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
-                                .clickable { selectedDurationMinutes = minutes }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
+                                .background(MonkCardAlt, RoundedCornerShape(8.dp))
+                                .border(1.dp, MonkLine, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val label = if (minutes >= 60) "${minutes / 60}h" else "${minutes}m"
                             Text(
-                                text = label,
-                                fontSize = 13.sp,
+                                text = "-",
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSelected) MonkInk else MonkText
+                                fontSize = 16.sp,
+                                color = MonkEmber,
+                                modifier = Modifier.clickable { expirationHour = (expirationHour - 1 + 24) % 24 }
+                            )
+                            Text(
+                                text = String.format("%02d hr", expirationHour),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MonkText
+                            )
+                            Text(
+                                text = "+",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MonkEmber,
+                                modifier = Modifier.clickable { expirationHour = (expirationHour + 1) % 24 }
                             )
                         }
+
+                        // Minute Selector
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(MonkCardAlt, RoundedCornerShape(8.dp))
+                                .border(1.dp, MonkLine, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "-",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MonkEmber,
+                                modifier = Modifier.clickable { expirationMinute = (expirationMinute - 5 + 60) % 60 }
+                            )
+                            Text(
+                                text = String.format("%02d min", expirationMinute),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MonkText
+                            )
+                            Text(
+                                text = "+",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MonkEmber,
+                                modifier = Modifier.clickable { expirationMinute = (expirationMinute + 5) % 60 }
+                            )
+                        }
+                    }
+                }
+
+                // Dynamic Expiration Preview Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MonkCardAlt, RoundedCornerShape(10.dp))
+                        .border(1.dp, MonkEmber.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .padding(10.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Strict Mode will automatically deactivate at:",
+                            fontSize = 11.sp,
+                            color = MonkMuted
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = TimeFormatter.formatExactDateTime(calculatedTargetEndTimeMs, zoneId),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MonkEmber
+                        )
+                        val remainingMs = maxOf(0L, calculatedTargetEndTimeMs - System.currentTimeMillis())
+                        Text(
+                            text = "${TimeFormatter.formatRemainingTime(remainingMs)} remaining",
+                            fontSize = 11.sp,
+                            color = MonkSage
+                        )
                     }
                 }
 
                 if (profiles.isNotEmpty()) {
                     Text(
                         text = "Focus Profile to lock:",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, color = MonkText)
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold, color = MonkText)
                     )
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         profiles.forEach { profile ->
                             Row(
                                 modifier = Modifier
@@ -132,7 +450,7 @@ fun ArmStrictSessionDialog(
                                     colors = RadioButtonDefaults.colors(selectedColor = MonkEmber, unselectedColor = MonkMuted)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = profile.name, color = MonkText, fontSize = 14.sp)
+                                Text(text = profile.name, color = MonkText, fontSize = 13.sp)
                             }
                         }
                     }
@@ -140,16 +458,16 @@ fun ArmStrictSessionDialog(
 
                 Text(
                     text = "Deactivation Challenge:",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, color = MonkText)
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold, color = MonkText)
                 )
 
                 val challenges = listOf(
                     "EXPIRATION_ONLY" to "Timer Only (Locked until time elapses)",
                     "COOL_DOWN" to "24h Delay Safety Valve",
-                    "RANDOM_TEXT" to "Random Stoic Quote (Type phrase to unlock)"
+                    "RANDOM_TEXT" to "Random Stoic Quote"
                 )
 
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     challenges.forEach { (type, label) ->
                         Row(
                             modifier = Modifier
@@ -163,7 +481,7 @@ fun ArmStrictSessionDialog(
                                 colors = RadioButtonDefaults.colors(selectedColor = MonkEmber, unselectedColor = MonkMuted)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = label, color = MonkText, fontSize = 13.sp)
+                            Text(text = label, color = MonkText, fontSize = 12.sp)
                         }
                     }
                 }
@@ -171,10 +489,10 @@ fun ArmStrictSessionDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onArm(selectedDurationMinutes, selectedProfileId, selectedChallenge) },
+                onClick = { onArm(calculatedTargetEndTimeMs, selectedProfileId, selectedChallenge) },
                 colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk)
             ) {
-                Text("Arm Now")
+                Text("Arm Strict Mode")
             }
         },
         dismissButton = {

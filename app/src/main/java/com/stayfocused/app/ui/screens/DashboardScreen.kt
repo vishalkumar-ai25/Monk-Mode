@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -34,18 +35,28 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import com.stayfocused.app.domain.FocusSummaryShareManager
 import com.stayfocused.app.domain.model.DailyFocusSummaryData
+import com.stayfocused.app.tracker.AppUsageInfo
 import com.stayfocused.app.tracker.UsageStatsTracker
+import com.stayfocused.app.ui.TimeFormatter
 import com.stayfocused.app.widget.FocusGlanceWidgetReceiver
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.mutableLongStateOf
+import com.stayfocused.app.data.local.entities.AppLimitEntity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,7 +95,11 @@ import com.stayfocused.app.ui.components.SettingsBackupCard
 import com.stayfocused.app.ui.components.StrictLockBlockedDialog
 import com.stayfocused.app.ui.components.TakeABreakCard
 import com.stayfocused.app.ui.theme.MonkCard
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
 import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkEmberDim
+import com.stayfocused.app.ui.theme.MonkInk
 import com.stayfocused.app.ui.theme.MonkLine
 import com.stayfocused.app.ui.theme.MonkMuted
 import com.stayfocused.app.ui.theme.MonkSage
@@ -121,26 +136,43 @@ fun DashboardScreen(
     var selectedImportUri by remember { mutableStateOf<Uri?>(null) }
     var isSharing by remember { mutableStateOf(false) }
 
-    // Calculate total daily tracked usage
-    val totalUsedMinutes = (appLimits.sumOf { it.currentDayUsageMs } / (60 * 1000L)).toInt()
-    val dailyTargetMinutes = 120 // 2 hours default daily budget
+    val usageTracker = remember(context) { UsageStatsTracker(context) }
+    var hasUsagePermission by remember { mutableStateOf(usageTracker.hasUsageStatsPermission()) }
+    var totalDeviceScreenTimeMs by remember { mutableLongStateOf(0L) }
+    var topUsedApps by remember { mutableStateOf<List<AppUsageInfo>>(emptyList()) }
+    var appToConfigureLimit by remember { mutableStateOf<AppUsageInfo?>(null) }
 
     val healthChecker = remember(context, database) { ProtectionHealthChecker(context, database) }
     var protectionSnapshot by remember { mutableStateOf(healthChecker.checkAll(hasBlockedDomains)) }
     val autostartIntent = remember { OemSurvivalHelper.findResolvableAutostartIntent(context) }
 
-    fun refreshHealth() {
+    fun refreshUsageAndHealth() {
+        hasUsagePermission = usageTracker.hasUsageStatsPermission()
         protectionSnapshot = healthChecker.checkAll(hasBlockedDomains)
+        if (hasUsagePermission) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    usageTracker.syncUsageWithDatabase(database.appLimitDao())
+                    val totalMs = usageTracker.queryTotalDeviceScreenTimeMs()
+                    val top = usageTracker.queryTopUsedApps(limit = 6)
+                    withContext(Dispatchers.Main) {
+                        totalDeviceScreenTimeMs = totalMs
+                        topUsedApps = top
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     LaunchedEffect(hasBlockedDomains) {
-        refreshHealth()
+        refreshUsageAndHealth()
     }
 
     DisposableEffect(lifecycleOwner, hasBlockedDomains) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                refreshHealth()
+                refreshUsageAndHealth()
                 FocusGlanceWidgetReceiver.triggerUpdateAsync(context)
             }
         }
@@ -149,6 +181,14 @@ fun DashboardScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+
+    // Calculate total daily tracked usage (actual device screen time if permission granted, else app limits sum)
+    val totalUsedMinutes = if (hasUsagePermission && totalDeviceScreenTimeMs > 0L) {
+        (totalDeviceScreenTimeMs / (60 * 1000L)).toInt()
+    } else {
+        (appLimits.sumOf { it.currentDayUsageMs } / (60 * 1000L)).toInt()
+    }
+    val dailyTargetMinutes = 120 // 2 hours default daily budget
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -177,7 +217,7 @@ fun DashboardScreen(
             }
             ContextCompat.startForegroundService(context, serviceIntent)
         }
-        refreshHealth()
+        refreshUsageAndHealth()
     }
 
     val handleFixCheck: (ProtectionCheckType) -> Unit = { checkType ->
@@ -196,7 +236,7 @@ fun DashboardScreen(
                         action = DnsVpnService.ACTION_START
                     }
                     ContextCompat.startForegroundService(context, serviceIntent)
-                    refreshHealth()
+                    refreshUsageAndHealth()
                 }
             }
             ProtectionCheckType.BATTERY_OPTIMIZATION -> {
@@ -206,7 +246,19 @@ fun DashboardScreen(
                 val request = OneTimeWorkRequestBuilder<WatchdogWorker>().build()
                 WorkManager.getInstance(context).enqueue(request)
                 Toast.makeText(context, "System watchdog triggered", Toast.LENGTH_SHORT).show()
-                refreshHealth()
+                refreshUsageAndHealth()
+            }
+            ProtectionCheckType.USAGE_ACCESS -> {
+                try {
+                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    })
+                } catch (e: Exception) {
+                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    })
+                }
             }
         }
     }
@@ -232,6 +284,43 @@ fun DashboardScreen(
                     text = "Distraction Defense Engine • Anti-Tamper: ${if (BuildConfig.ANTI_TAMPER_ENABLED) "ARMED" else "DEV"}",
                     style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                 )
+            }
+        }
+
+        // Usage Access Permission Warning Banner (if not granted)
+        if (!hasUsagePermission) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkCard),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(width = 1.dp, color = MonkEmber, shape = RoundedCornerShape(18.dp))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(10.dp).background(MonkEmber, CircleShape))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Usage Access Permission Required",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = MonkEmber)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Android requires Usage Access to track your real screen time, calculate app usage, and enforce daily boundaries.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 12.sp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { handleFixCheck(ProtectionCheckType.USAGE_ACCESS) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Grant Usage Access", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
 
@@ -276,7 +365,7 @@ fun DashboardScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Today's Tracked Screen Time",
+                        text = "Today's Screen Time",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
@@ -293,7 +382,11 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = "${appLimits.size} active app limit${if (appLimits.size == 1) "" else "s"} monitored",
+                        text = if (hasUsagePermission) {
+                            "Total Device Usage: ${TimeFormatter.formatUsageDuration(totalDeviceScreenTimeMs)}"
+                        } else {
+                            "${appLimits.size} active app limit${if (appLimits.size == 1) "" else "s"} monitored"
+                        },
                         style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                     )
 
@@ -347,6 +440,180 @@ fun DashboardScreen(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                }
+            }
+        }
+
+        // Usage Overview: Top Apps by Usage Today
+        if (hasUsagePermission && topUsedApps.isNotEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkCard),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(width = 1.dp, color = MonkLine, shape = RoundedCornerShape(18.dp))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Usage Overview",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontFamily = FontFamily.Serif,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MonkText
+                                )
+                            )
+                            Text(
+                                text = "Today",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MonkMuted,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        val maxUsage = topUsedApps.maxOfOrNull { it.foregroundTimeMs }?.coerceAtLeast(1L) ?: 1L
+
+                        topUsedApps.forEachIndexed { index, app ->
+                            if (index > 0) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+
+                            val matchingLimit = appLimits.find { it.packageName == app.packageName }
+                            val isLimitActive = matchingLimit != null && matchingLimit.dailyTimeLimitMinutes > 0
+                            val isShielded = matchingLimit != null && matchingLimit.isBlocked
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (activeStrictSession != null && activeStrictSession!!.isActive) {
+                                            Toast.makeText(
+                                                context,
+                                                "Modifying limits is prohibited while Strict Mode is active.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            appToConfigureLimit = app
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AppIconImage(packageName = app.packageName, size = 42)
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        ) {
+                                            Text(
+                                                text = app.appName.ifBlank { app.packageName },
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MonkText
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (isLimitActive) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(MonkEmberDim, RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${matchingLimit!!.dailyTimeLimitMinutes}m",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MonkEmber,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                            } else if (isShielded) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(MonkDanger.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Blocked",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MonkDanger,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Text(
+                                            text = TimeFormatter.formatUsageDuration(app.foregroundTimeMs),
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                color = MonkMuted,
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 12.sp
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    val fraction = (app.foregroundTimeMs.toFloat() / maxUsage.toFloat()).coerceIn(0.02f, 1f)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .background(MonkCardAlt, RoundedCornerShape(3.dp))
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(fraction)
+                                                .height(6.dp)
+                                                .background(
+                                                    if (isShielded) MonkDanger else MonkEmber,
+                                                    RoundedCornerShape(3.dp)
+                                                )
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                Text(
+                                    text = "⋮",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MonkMuted,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -587,6 +854,139 @@ fun DashboardScreen(
         StrictLockBlockedDialog(
             targetProfile = target,
             onDismiss = { blockedStrictProfile = null }
+        )
+    }
+
+    appToConfigureLimit?.let { app ->
+        val existingLimit = appLimits.find { it.packageName == app.packageName }
+        var minutesLimit by remember(app.packageName) {
+            mutableFloatStateOf(
+                existingLimit?.dailyTimeLimitMinutes?.toFloat() ?: 60f
+            )
+        }
+
+        AlertDialog(
+            onDismissRequest = { appToConfigureLimit = null },
+            containerColor = MonkCard,
+            title = {
+                Text(
+                    text = "Set Limit: ${app.appName}",
+                    color = MonkText,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Daily Screen Time Boundary:",
+                        fontWeight = FontWeight.SemiBold,
+                        color = MonkText,
+                        fontSize = 13.sp
+                    )
+
+                    // Quick Presets: 15 min, 30 min, 1 hr, 2 hr, Block Only
+                    val presets = listOf(
+                        15 to "15 min",
+                        30 to "30 min",
+                        60 to "1 hr",
+                        120 to "2 hr",
+                        0 to "Block Only"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        presets.forEach { (mins, label) ->
+                            val isSelected = minutesLimit.toInt() == mins
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(
+                                        if (isSelected) MonkEmber else MonkCardAlt,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) MonkEmber else MonkLine,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { minutesLimit = mins.toFloat() }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = if (minutesLimit.toInt() == 0) "Immediate Block (0 min)" else "Daily Limit: ${minutesLimit.toInt()} minutes",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MonkEmber
+                    )
+                    Text(
+                        text = if (minutesLimit.toInt() == 0) "App will be blocked whenever opened" else "App will lock immediately once ${minutesLimit.toInt()}m is reached",
+                        fontSize = 11.sp,
+                        color = MonkMuted
+                    )
+
+                    Slider(
+                        value = minutesLimit,
+                        onValueChange = { minutesLimit = it },
+                        valueRange = 0f..180f,
+                        steps = 11,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MonkEmber,
+                            activeTrackColor = MonkEmber,
+                            inactiveTrackColor = MonkCardAlt
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            val isZeroBlock = (minutesLimit.toInt() == 0)
+                            val updated = existingLimit?.copy(
+                                dailyTimeLimitMinutes = minutesLimit.toInt(),
+                                isBlocked = isZeroBlock || existingLimit.isBlocked
+                            ) ?: AppLimitEntity(
+                                packageName = app.packageName,
+                                appName = app.appName,
+                                dailyTimeLimitMinutes = minutesLimit.toInt(),
+                                isBlocked = isZeroBlock
+                            )
+                            database.appLimitDao().upsertAppLimit(updated)
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Limit saved for ${app.appName}", Toast.LENGTH_SHORT).show()
+                                appToConfigureLimit = null
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Save Limit", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { appToConfigureLimit = null },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkMuted),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine)
+                ) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }

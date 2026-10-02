@@ -174,4 +174,62 @@ class UsageStatsTrackerTest {
         tiktok = appLimitDao.getAppLimitSync("com.tiktok.android")
         assertEquals(2, tiktok?.currentDayLaunches)
     }
+
+    @Test
+    fun testQueryTotalDeviceScreenTimeMsAggregatesAllApps() {
+        val mockData = mapOf(
+            "com.google.android.youtube" to (2 * 3600 + 5 * 60) * 1000L, // 2h 5m
+            "com.stayfocused" to (4 * 60 + 50) * 1000L,                   // 4m 50s
+            "com.android.settings" to (2 * 60 + 48) * 1000L               // 2m 48s
+        )
+        val expectedTotal = mockData.values.sum()
+
+        val tracker = UsageStatsTracker(
+            context = context,
+            appOpsChecker = { true },
+            usageStatsProvider = { _, _ -> mockData }
+        )
+
+        val totalMs = tracker.queryTotalDeviceScreenTimeMs()
+        assertEquals(expectedTotal, totalMs)
+    }
+
+    @Test
+    fun testQueryTopUsedAppsOrdersDescendingAndResolvesLabels() {
+        val mockData = mapOf(
+            "com.stayfocused" to (4 * 60) * 1000L,
+            "com.google.android.youtube" to (120 * 60) * 1000L,
+            "com.android.chrome" to (15 * 60) * 1000L
+        )
+
+        val tracker = UsageStatsTracker(
+            context = context,
+            appOpsChecker = { true },
+            usageStatsProvider = { _, _ -> mockData }
+        )
+
+        val topApps = tracker.queryTopUsedApps(limit = 2)
+        assertEquals(2, topApps.size)
+        assertEquals("com.google.android.youtube", topApps[0].packageName)
+        assertEquals((120 * 60) * 1000L, topApps[0].foregroundTimeMs)
+        assertEquals("com.android.chrome", topApps[1].packageName)
+        assertEquals((15 * 60) * 1000L, topApps[1].foregroundTimeMs)
+    }
+
+    @Test
+    fun testQueryPackageUsageTodayReturnsSpecificAppUsage() {
+        val mockData = mapOf(
+            "com.google.android.youtube" to 500000L,
+            "com.android.chrome" to 100000L
+        )
+
+        val tracker = UsageStatsTracker(
+            context = context,
+            appOpsChecker = { true },
+            usageStatsProvider = { _, _ -> mockData }
+        )
+
+        assertEquals(500000L, tracker.queryPackageUsageToday("com.google.android.youtube"))
+        assertEquals(0L, tracker.queryPackageUsageToday("com.unknown.app"))
+    }
 }

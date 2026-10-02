@@ -237,4 +237,50 @@ class StrictScheduleReceiverTest {
         assertEquals(monday2pm.toInstant().toEpochMilli(), updatedSession?.targetEndTime)
         assertEquals("EXPIRATION_ONLY", updatedSession?.deactivationChallenge)
     }
+
+    @Test
+    fun reconcileSchedules_afterReboot_deactivatesGracefullyAtTargetEndTime() = runBlocking {
+        // Active multi-day session created before reboot
+        val startTime = 1000_000L
+        val targetEndTime = startTime + 7 * 24 * 3600_000L // 7 days
+        // BootCompletedReceiver reset startElapsedRealtime to -1L on reboot
+        val startElapsedRealtime = -1L
+
+        db.strictSessionDao().insertSession(
+            StrictSessionEntity(
+                id = 1,
+                profileId = 1,
+                startTime = startTime,
+                targetEndTime = targetEndTime,
+                startElapsedRealtime = startElapsedRealtime,
+                deactivationChallenge = "EXPIRATION_ONLY",
+                isActive = true
+            )
+        )
+
+        // Wall-clock reaches target end time 7 days later, and phone has only been awake for 2 hours on this boot
+        val nowEpochMs = targetEndTime + 60_000L
+        val nowElapsed = 2 * 3600_000L
+        val nowZdt = ZonedDateTime.of(
+            LocalDate.of(2026, 10, 12),
+            LocalTime.of(10, 1),
+            ZoneId.of("UTC")
+        )
+
+        receiver.reconcileSchedules(
+            context = context,
+            database = db,
+            nowEpochMs = nowEpochMs,
+            nowZdt = nowZdt,
+            nowElapsedRealtime = nowElapsed
+        )
+
+        // Session must deactivate gracefully without false clock tamper detection
+        val activeSessionAfter = db.strictSessionDao().getActiveStrictSessionSync()
+        assertNull(activeSessionAfter)
+
+        val logs = db.failsafeLogDao().getAllLogsSync()
+        assertTrue(logs.any { it.eventType == "SCHEDULE_STRICT_DEACTIVATED" })
+        assertTrue(logs.none { it.eventType == "CLOCK_TAMPER_DETECTED" })
+    }
 }

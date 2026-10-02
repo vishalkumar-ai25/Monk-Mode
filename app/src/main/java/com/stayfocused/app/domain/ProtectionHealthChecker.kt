@@ -56,7 +56,11 @@ class ProtectionHealthChecker(
         val lastWatchdog = preferences.lastWatchdogRunTimestamp
         val watchdogResult = engine.evaluateWatchdog(lastWatchdog, now)
 
-        val checks = listOf(accessibilityResult, vpnResult, batteryResult, watchdogResult)
+        // 5. Usage Access check
+        val hasUsageAccess = com.stayfocused.app.tracker.UsageStatsTracker.checkUsageStatsPermission(context)
+        val usageAccessResult = engine.evaluateUsageAccess(hasUsageAccess)
+
+        val checks = listOf(accessibilityResult, vpnResult, batteryResult, watchdogResult, usageAccessResult)
         return engine.createSnapshot(checks, now)
     }
 }

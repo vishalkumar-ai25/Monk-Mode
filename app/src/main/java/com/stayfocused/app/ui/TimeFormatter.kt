@@ -1,5 +1,9 @@
 package com.stayfocused.app.ui
 
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 object TimeFormatter {
@@ -7,9 +11,40 @@ object TimeFormatter {
     fun formatRemainingTime(remainingMs: Long): String {
         if (remainingMs <= 0) return "00:00"
         val totalSeconds = remainingMs / 1000
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return String.format(Locale.US, "%02d:%02d", minutes, seconds)
+        val totalMinutes = totalSeconds / 60
+        val totalHours = totalMinutes / 60
+        val totalDays = totalHours / 24
+
+        return when {
+            totalHours < 1 -> {
+                String.format(Locale.US, "%02d:%02d", totalMinutes, totalSeconds % 60)
+            }
+            totalDays < 1 -> {
+                String.format(Locale.US, "%02d:%02d:%02d", totalHours, totalMinutes % 60, totalSeconds % 60)
+            }
+            else -> {
+                String.format(Locale.US, "%dd %02dh %02dm", totalDays, totalHours % 24, totalMinutes % 60)
+            }
+        }
+    }
+
+    fun formatExactDateTime(epochMs: Long, zoneId: ZoneId = ZoneId.systemDefault()): String {
+        val zdt = ZonedDateTime.ofInstant(Instant.ofEpochMilli(epochMs), zoneId)
+        val formatter = DateTimeFormatter.ofPattern("EEE, MMM d, hh:mm a", Locale.US)
+        return zdt.format(formatter)
+    }
+
+    fun formatUsageDuration(durationMs: Long): String {
+        val totalSeconds = (durationMs / 1000).coerceAtLeast(0L)
+        val totalMinutes = totalSeconds / 60
+        val totalHours = totalMinutes / 60
+
+        return if (totalHours > 0) {
+            val hourLabel = if (totalHours == 1L) "hr" else "hrs"
+            String.format(Locale.US, "%02d %s %02d mins", totalHours, hourLabel, totalMinutes % 60)
+        } else {
+            String.format(Locale.US, "%02d mins %02d sec", totalMinutes, totalSeconds % 60)
+        }
     }
 
     fun formatTimeAgo(timestamp: Long, now: Long = System.currentTimeMillis()): String {
