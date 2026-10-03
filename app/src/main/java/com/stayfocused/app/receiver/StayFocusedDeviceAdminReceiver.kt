@@ -26,6 +26,17 @@ class StayFocusedDeviceAdminReceiver : DeviceAdminReceiver() {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
             return dpm?.isAdminActive(getComponentName(context)) ?: false
         }
+
+        fun createAddDeviceAdminIntent(context: Context): Intent {
+            return Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, getComponentName(context))
+                putExtra(
+                    DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Monk Mode requires Device Administrator to prevent uninstallation and settings tampering while Strict Mode is active."
+                )
+            }
+        }
     }
 
     override fun onEnabled(context: Context, intent: Intent) {
@@ -35,7 +46,16 @@ class StayFocusedDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence? {
         Log.w(TAG, "Device Admin disable requested.")
-        return getDisableWarning(antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED)
+        val isStrictActive = try {
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                val db = com.stayfocused.app.data.local.StayFocusedDatabase.getInstance(context)
+                val session = db.strictSessionDao().getActiveStrictSessionSync()
+                session != null && session.isActive && System.currentTimeMillis() < session.targetEndTime
+            }
+        } catch (e: Exception) {
+            false
+        }
+        return getDisableWarning(antiTamperEnabled = isStrictActive)
     }
 
     override fun onDisabled(context: Context, intent: Intent) {
@@ -45,7 +65,7 @@ class StayFocusedDeviceAdminReceiver : DeviceAdminReceiver() {
 
     fun getDisableWarning(antiTamperEnabled: Boolean): CharSequence? {
         return if (antiTamperEnabled) {
-            "Stay Focused Strict Mode protection is active. Deactivating Device Admin is restricted to prevent impulsive uninstallation. Use your emergency recovery code to deactivate."
+            "Monk Mode (Stay Focused) Strict Mode protection is active. Deactivating Device Admin is locked to prevent uninstallation until your session expires."
         } else {
             null
         }

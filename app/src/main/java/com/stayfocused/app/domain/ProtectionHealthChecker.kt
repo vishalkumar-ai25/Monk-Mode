@@ -60,7 +60,18 @@ class ProtectionHealthChecker(
         val hasUsageAccess = com.stayfocused.app.tracker.UsageStatsTracker.checkUsageStatsPermission(context)
         val usageAccessResult = engine.evaluateUsageAccess(hasUsageAccess)
 
-        val checks = listOf(accessibilityResult, vpnResult, batteryResult, watchdogResult, usageAccessResult)
+        // 6. Device Admin anti-uninstall check
+        val isDeviceAdminActive = com.stayfocused.app.receiver.StayFocusedDeviceAdminReceiver.isDeviceAdminActive(context)
+        val deviceAdminResult = engine.evaluateDeviceAdmin(isDeviceAdminActive)
+
+        val checks = listOf(
+            accessibilityResult,
+            vpnResult,
+            batteryResult,
+            watchdogResult,
+            usageAccessResult,
+            deviceAdminResult
+        )
         return engine.createSnapshot(checks, now)
     }
 }

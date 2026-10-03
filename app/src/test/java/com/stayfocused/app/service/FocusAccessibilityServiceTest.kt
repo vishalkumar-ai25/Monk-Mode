@@ -41,6 +41,7 @@ class FocusAccessibilityServiceTest {
         every { mockOverlayManager.canDrawOverlays() } returns true
         service.overlayManager = mockOverlayManager
         service.packageRegistry = PackageRegistry.createDefault()
+        service.isBootGracePeriodProvider = { false }
     }
 
     @After
@@ -150,6 +151,69 @@ class FocusAccessibilityServiceTest {
         verify(atLeast = 1) {
             mockOverlayManager.showOverlay(
                 match { it is BlockReason.ProfileActive && it.profileName == "Deep Focus" },
+                any()
+            )
+        }
+    }
+
+    @Test
+    fun testMonkModeAppInfoBlockedInStrictMode() {
+        service.isStrictModeActive = true
+        every { service.performGlobalAction(any()) } returns true
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = "com.android.settings"
+            className = "com.android.settings.applications.InstalledAppDetails"
+            text.add("Monk Mode")
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) }
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.SettingsTamper },
+                any()
+            )
+        }
+    }
+
+    @Test
+    fun testNormalSettingsAllowedInStrictMode() {
+        service.isStrictModeActive = true
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = "com.android.settings"
+            className = "com.android.settings.wifi.WifiSettings"
+            text.add("Wi-Fi")
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) { mockOverlayManager.hideOverlay() }
+        verify(exactly = 0) { mockOverlayManager.showOverlay(any(), any()) }
+    }
+
+    @Test
+    fun testPackageInstallerBlockedInStrictMode() {
+        service.isStrictModeActive = true
+        every { service.performGlobalAction(any()) } returns true
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = "com.google.android.packageinstaller"
+            className = "com.android.packageinstaller.UninstallerActivity"
+            text.add("Do you want to uninstall Monk Mode?")
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) }
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.SettingsTamper },
                 any()
             )
         }

@@ -206,4 +206,27 @@ class ProtectionStatusEngine {
             )
         }
     }
+
+    /**
+     * Evaluates Device Administrator anti-uninstall protection status.
+     */
+    fun evaluateDeviceAdmin(isAdminActive: Boolean): ProtectionCheckResult {
+        return if (isAdminActive) {
+            ProtectionCheckResult(
+                type = ProtectionCheckType.DEVICE_ADMIN,
+                status = ProtectionCheckStatus.PASS,
+                title = "Anti-Uninstall Shield",
+                summary = "Active (Device Administrator prevents uninstallation)",
+                actionLabel = null
+            )
+        } else {
+            ProtectionCheckResult(
+                type = ProtectionCheckType.DEVICE_ADMIN,
+                status = ProtectionCheckStatus.WARN,
+                title = "Anti-Uninstall Shield",
+                summary = "Inactive (Device Admin required to prevent uninstallation during Strict Mode)",
+                actionLabel = "Activate"
+            )
+        }
+    }
 }

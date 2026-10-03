@@ -237,4 +237,18 @@ class ProtectionStatusEngineTest {
         assertEquals(ProtectionCheckStatus.FAIL, denied.status)
         assertEquals("Grant", denied.actionLabel)
     }
+
+    @Test
+    fun testDeviceAdminEvaluation() {
+        val active = engine.evaluateDeviceAdmin(isAdminActive = true)
+        assertEquals(ProtectionCheckStatus.PASS, active.status)
+        assertEquals(ProtectionCheckType.DEVICE_ADMIN, active.type)
+        assertEquals(null, active.actionLabel)
+
+        val inactive = engine.evaluateDeviceAdmin(isAdminActive = false)
+        assertEquals(ProtectionCheckStatus.WARN, inactive.status)
+        assertEquals(ProtectionCheckType.DEVICE_ADMIN, inactive.type)
+        assertEquals("Activate", inactive.actionLabel)
+    }
 }
+

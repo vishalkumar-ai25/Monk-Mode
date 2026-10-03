@@ -41,4 +41,23 @@ class StayFocusedDeviceAdminReceiverTest {
         val warning = receiver.getDisableWarning(antiTamperEnabled = false)
         assertNull("No warning should be returned when anti-tamper is disabled (debug mode)", warning)
     }
+
+    @Test
+    fun testCreateAddDeviceAdminIntent() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = StayFocusedDeviceAdminReceiver.createAddDeviceAdminIntent(context)
+
+        assertEquals(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN, intent.action)
+        assertEquals(Intent.FLAG_ACTIVITY_NEW_TASK, intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK)
+        val component = intent.getParcelableExtra<ComponentName>(DevicePolicyManager.EXTRA_DEVICE_ADMIN)
+        assertEquals(StayFocusedDeviceAdminReceiver.getComponentName(context), component)
+        assertNotNull(intent.getStringExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION))
+    }
+
+    @Test
+    fun testIsDeviceAdminActiveReturnsFalseInitiallyInRobolectric() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val isActive = StayFocusedDeviceAdminReceiver.isDeviceAdminActive(context)
+        assertEquals(false, isActive)
+    }
 }

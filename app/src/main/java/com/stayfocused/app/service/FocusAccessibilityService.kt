@@ -8,6 +8,7 @@ import com.stayfocused.app.BuildConfig
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.registry.PackageRegistry
 import com.stayfocused.app.domain.InterceptionDecisionEngine
+import com.stayfocused.app.domain.SettingsTamperInspector
 import com.stayfocused.app.domain.model.AppLimitSnapshot
 import com.stayfocused.app.domain.model.BlockReason
 import com.stayfocused.app.domain.model.FocusProfileRule
@@ -38,6 +39,7 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     var engine: InterceptionDecisionEngine = InterceptionDecisionEngine()
+    var tamperInspector: SettingsTamperInspector = SettingsTamperInspector()
     var overlayManager: BlockOverlayManager? = null
     var packageRegistry: PackageRegistry? = null
     var usageStatsTracker: UsageStatsTracker? = null
@@ -55,6 +57,7 @@ class FocusAccessibilityService : AccessibilityService() {
     @Volatile var cachedActiveProfiles: List<FocusProfileRule> = emptyList()
     @Volatile var cachedAppLimits: Map<String, AppLimitSnapshot> = emptyMap()
     @Volatile var isStrictModeActive: Boolean = false
+    @Volatile var cachedStrictEndTimeMs: Long = 0L
     @Volatile var cachedBreakEndTimeMs: Long = 0L
 
     var isBreakActive: Boolean
@@ -99,17 +102,74 @@ class FocusAccessibilityService : AccessibilityService() {
         }
 
         val packageName = event.packageName?.toString() ?: return
-        handlePackageChanged(packageName)
+        val className = event.className?.toString()
+        val windowTexts = buildList {
+            event.text?.forEach { add(it.toString()) }
+            event.contentDescription?.let { add(it.toString()) }
+        }
+
+        handleWindowEvent(packageName, className, windowTexts)
     }
 
     fun handlePackageChanged(packageName: String) {
+        handleWindowEvent(packageName, className = null, windowTexts = emptyList())
+    }
+
+    fun handleWindowEvent(
+        packageName: String,
+        className: String?,
+        windowTexts: List<String>
+    ) {
         val target = packageName.trim()
         if (target.isEmpty() || target.equals(applicationContext.packageName, ignoreCase = true)) {
             foregroundMonitorJob?.cancel()
             return
         }
 
+        val isStrictActive = isStrictModeActive && (cachedStrictEndTimeMs == 0L || System.currentTimeMillis() < cachedStrictEndTimeMs)
         val isSettingsOrInstaller = packageRegistry?.isSettingsOrInstaller(target) ?: false
+        val isTargetSettingsOrInstaller = isSettingsOrInstaller ||
+                SettingsTamperInspector.SETTINGS_PACKAGES.contains(target.lowercase()) ||
+                SettingsTamperInspector.INSTALLER_PACKAGES.contains(target.lowercase()) ||
+                target.lowercase() == SettingsTamperInspector.PLAY_STORE_PACKAGE ||
+                target.lowercase().endsWith(".settings")
+
+        // Fine-grained anti-tamper inspection for Settings, PackageInstaller, and Play Store
+        if (isTargetSettingsOrInstaller) {
+            val isGracePeriodActive = isBootGracePeriodProvider()
+            val tamperDecision = tamperInspector.evaluate(
+                packageName = target,
+                className = className,
+                windowTexts = windowTexts,
+                isStrictModeActive = isStrictActive,
+                isGracePeriodActive = isGracePeriodActive,
+                antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED || isStrictActive
+            )
+
+            when (tamperDecision) {
+                is SettingsTamperInspector.TamperDecision.BlockTamper -> {
+                    foregroundMonitorJob?.cancel()
+                    Log.w(TAG, "Blocking tamper attempt in $target ($className): ${tamperDecision.reason}")
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    val manager = overlayManager
+                    val canDraw = manager?.canDrawOverlays() ?: false
+                    if (manager != null && canDraw) {
+                        manager.showOverlay(
+                            reason = BlockReason.SettingsTamper(tamperDecision.reason),
+                            onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+                        )
+                    }
+                    return
+                }
+                is SettingsTamperInspector.TamperDecision.Allow -> {
+                    // Safe Settings navigation (Wi-Fi, Bluetooth, Audio, Display, etc.)
+                    overlayManager?.hideOverlay()
+                    foregroundMonitorJob?.cancel()
+                    return
+                }
+            }
+        }
+
         val isGracePeriodActive = isBootGracePeriodProvider()
         val appLimit = cachedAppLimits[target.lowercase()]
 
@@ -118,10 +178,10 @@ class FocusAccessibilityService : AccessibilityService() {
             currentTimeMillis = System.currentTimeMillis(),
             appLimit = appLimit,
             activeProfiles = cachedActiveProfiles,
-            isStrictModeActive = isStrictModeActive,
+            isStrictModeActive = isStrictActive,
             isBreakActive = isBreakActive,
-            antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED,
-            isSettingsOrInstaller = isSettingsOrInstaller,
+            antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED || isStrictActive,
+            isSettingsOrInstaller = false,
             isGracePeriodActive = isGracePeriodActive
         )
 
@@ -268,6 +328,7 @@ class FocusAccessibilityService : AccessibilityService() {
                     .catch { e -> Log.e(TAG, "Error observing strict sessions", e) }
                     .collectLatest { session ->
                         isStrictModeActive = session != null && session.isActive
+                        cachedStrictEndTimeMs = session?.targetEndTime ?: 0L
                     }
             }
 

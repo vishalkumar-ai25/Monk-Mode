@@ -30,13 +30,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
+import com.stayfocused.app.receiver.StayFocusedDeviceAdminReceiver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -89,9 +94,26 @@ fun StrictLockScreen(
 
     // Dialog States
     var showArmDialog by remember { mutableStateOf(false) }
+    var showDeviceAdminWarningDialog by remember { mutableStateOf(false) }
     var showScheduleConfigDialog by remember { mutableStateOf(false) }
     var editingSchedule by remember { mutableStateOf<StrictScheduleEntity?>(null) }
     var activeChallengeQuote by remember { mutableStateOf<ChallengeQuote?>(null) }
+
+    var isDeviceAdminActive by remember {
+        mutableStateOf(StayFocusedDeviceAdminReceiver.isDeviceAdminActive(context))
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isDeviceAdminActive = StayFocusedDeviceAdminReceiver.isDeviceAdminActive(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val randomTextEngine = remember { RandomTextChallengeEngine() }
 
@@ -227,7 +249,13 @@ fun StrictLockScreen(
                         }
                     } else {
                         Button(
-                            onClick = { showArmDialog = true },
+                            onClick = {
+                                if (!isDeviceAdminActive) {
+                                    showDeviceAdminWarningDialog = true
+                                } else {
+                                    showArmDialog = true
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -277,14 +305,18 @@ fun StrictLockScreen(
             )
         }
 
-        // Anti-Tamper Status Card
+        // Anti-Uninstall Protection (Device Administrator) Card
         item {
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MonkCard),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(width = 1.dp, color = MonkLine, shape = RoundedCornerShape(18.dp))
+                    .border(
+                        width = 1.dp,
+                        color = if (isDeviceAdminActive) MonkSage.copy(alpha = 0.5f) else MonkLine,
+                        shape = RoundedCornerShape(18.dp)
+                    )
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
@@ -292,33 +324,57 @@ fun StrictLockScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Box(
                                 modifier = Modifier
                                     .size(10.dp)
                                     .background(
-                                        color = if (BuildConfig.ANTI_TAMPER_ENABLED) MonkSage else MonkEmber,
+                                        color = if (isDeviceAdminActive) MonkSage else MonkEmber,
                                         shape = CircleShape
                                     )
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (BuildConfig.ANTI_TAMPER_ENABLED) "Anti-Tamper: ACTIVE" else "Anti-Tamper: DEV RELAXED",
+                                    text = if (isDeviceAdminActive) "Anti-Uninstall: ARMED" else "Anti-Uninstall: INACTIVE",
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.SemiBold,
-                                        color = MonkText
+                                        color = if (isDeviceAdminActive) MonkSage else MonkText
                                     )
                                 )
                                 Text(
-                                    text = if (BuildConfig.ANTI_TAMPER_ENABLED) {
-                                        "Release Build: Settings and uninstallation lockout fully armed"
+                                    text = if (isDeviceAdminActive) {
+                                        "Device Administrator is active. The Android OS prevents uninstallation from the launcher while Strict Mode is active."
                                     } else {
-                                        "Debug Build: Safe dev mode (Settings interception logs without lockout)"
+                                        "Device Administrator required to prevent uninstalling Monk Mode from the home screen."
                                     },
                                     style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 11.sp)
                                 )
                             }
+                        }
+                    }
+
+                    if (!isDeviceAdminActive) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(
+                            onClick = {
+                                try {
+                                    context.startActivity(StayFocusedDeviceAdminReceiver.createAddDeviceAdminIntent(context))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Unable to launch Device Admin settings", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MonkEmber,
+                                contentColor = MonkInk
+                            )
+                        ) {
+                            Text("Activate Anti-Uninstall Protection", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -485,6 +541,58 @@ fun StrictLockScreen(
         item {
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    // Anti-Uninstall Device Admin Warning Dialog before arming
+    if (showDeviceAdminWarningDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeviceAdminWarningDialog = false },
+            containerColor = MonkCard,
+            title = {
+                Text(
+                    text = "Anti-Uninstall Not Armed",
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    color = MonkText
+                )
+            },
+            text = {
+                Text(
+                    text = "Anti-Uninstall Protection (Device Administrator) is not active.\n\nWithout Device Administrator, Android allows uninstalling the app from the home screen launcher to escape Strict Mode.\n\nActivate Anti-Uninstall Protection for complete focus security?",
+                    color = MonkMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeviceAdminWarningDialog = false
+                        try {
+                            context.startActivity(StayFocusedDeviceAdminReceiver.createAddDeviceAdminIntent(context))
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Unable to launch Device Admin settings", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MonkEmber,
+                        contentColor = MonkInk
+                    )
+                ) {
+                    Text("Activate Protection", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDeviceAdminWarningDialog = false
+                        showArmDialog = true
+                    }
+                ) {
+                    Text("Proceed Anyway", color = MonkMuted)
+                }
+            }
+        )
     }
 
     // Arm Strict Session Dialog

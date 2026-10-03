@@ -104,6 +104,7 @@ import com.stayfocused.app.ui.theme.MonkLine
 import com.stayfocused.app.ui.theme.MonkMuted
 import com.stayfocused.app.ui.theme.MonkSage
 import com.stayfocused.app.ui.theme.MonkText
+import com.stayfocused.app.receiver.StayFocusedDeviceAdminReceiver
 import com.stayfocused.app.vpn.DnsVpnService
 import com.stayfocused.app.worker.WatchdogWorker
 import kotlinx.coroutines.Dispatchers
@@ -258,6 +259,15 @@ fun DashboardScreen(
                     context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     })
+                }
+            }
+            ProtectionCheckType.DEVICE_ADMIN -> {
+                try {
+                    context.startActivity(StayFocusedDeviceAdminReceiver.createAddDeviceAdminIntent(context).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    })
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Unable to open Device Admin settings", Toast.LENGTH_SHORT).show()
                 }
             }
         }

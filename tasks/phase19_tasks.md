@@ -1,0 +1,26 @@
+# Phase 19 Tasks: Anti-Uninstall & Tamper Protection
+
+- [x] Task 1: Device Admin Integration & Helpers
+  - Ensure `StayFocusedDeviceAdminReceiver` has clean intent creation helper `createAddDeviceAdminIntent(context)`.
+  - Update `onDisableRequested` to check `StrictSessionDao` directly or return protective warning string.
+- [x] Task 2: Fine-Grained Accessibility Settings Interception
+  - Add `SettingsTamperInspector` in domain / service layer:
+    - Pure function / evaluator taking window text or class name and checking if it targets Monk Mode uninstallation / deactivation.
+  - Wire into `FocusAccessibilityService.onAccessibilityEvent`:
+    - On `TYPE_WINDOW_STATE_CHANGED`, if in settings/installer/vending:
+      - Inspect window texts and activity class for `"Monk Mode"`, `"Stay Focused"`, `"com.stayfocused.app"`, or device admin deactivation.
+      - If matched and `isStrictModeActive == true`: intercept with `GLOBAL_ACTION_HOME` and show tamper overlay.
+      - If normal settings (Wi-Fi, Bluetooth, Audio, Display): allow immediately.
+- [x] Task 3: Protection Health Checker Update
+  - Add `DEVICE_ADMIN` to `ProtectionCheckType`.
+  - In `ProtectionHealthChecker`, check `StayFocusedDeviceAdminReceiver.isDeviceAdminActive(context)`.
+  - In `DashboardScreen`, wire `ProtectionCheckType.DEVICE_ADMIN` fix action.
+- [x] Task 4: UI Updates in StrictLockScreen
+  - Add Anti-Uninstall Protection Card in `StrictLockScreen.kt`.
+  - Show status (Active / Inactive) with one-tap activation button.
+  - Warn user if activating Strict Mode without Device Admin.
+- [x] Task 5: Unit Tests
+  - Unit test `SettingsTamperInspector` with positive cases (Monk Mode App Info, Device Admin deactivation) and negative cases (Wi-Fi, Bluetooth, Audio settings).
+  - Unit test `ProtectionStatusEngine` with Device Admin test.
+  - Unit test `StayFocusedDeviceAdminReceiver` with component, warning, intent, and status tests.
+  - Unit test `FocusAccessibilityService` with fine-grained settings and installer tests.

@@ -8,7 +8,8 @@ enum class ProtectionCheckType {
     VPN,
     BATTERY_OPTIMIZATION,
     WATCHDOG,
-    USAGE_ACCESS
+    USAGE_ACCESS,
+    DEVICE_ADMIN
 }
 
 /**
