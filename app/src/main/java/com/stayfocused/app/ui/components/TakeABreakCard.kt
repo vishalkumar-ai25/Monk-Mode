@@ -169,7 +169,7 @@ fun TakeABreakCard(
                     onClick = onEndBreak,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MonkDanger,
-                        contentColor = MonkText
+                        contentColor = MonkInk
                     ),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()

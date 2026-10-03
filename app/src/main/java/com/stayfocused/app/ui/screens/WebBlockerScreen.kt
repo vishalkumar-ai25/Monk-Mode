@@ -149,7 +149,7 @@ fun WebBlockerScreen(
                             onClick = onToggleVpn,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (isVpnRunning) MonkDanger else MonkEmber,
-                                contentColor = if (isVpnRunning) MonkText else MonkInk
+                                contentColor = MonkInk
                             ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -416,8 +416,8 @@ fun BlockedDomainItemCard(
                 checked = entity.isBlocked,
                 onCheckedChange = onToggleBlocked,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = MonkText,
-                    checkedTrackColor = MonkEmberDim,
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = MonkEmber,
                     checkedBorderColor = MonkEmber,
                     uncheckedThumbColor = MonkMuted,
                     uncheckedTrackColor = MonkCardAlt,
@@ -448,11 +448,11 @@ private fun PresetDomainButton(
         onClick = onClick,
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
     ) {
-        Text(text = domain, fontSize = 12.sp)
+        Text(text = domain, fontSize = 11.sp, maxLines = 1)
     }
 }
 

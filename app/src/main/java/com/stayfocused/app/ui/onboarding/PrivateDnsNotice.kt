@@ -2,7 +2,9 @@ package com.stayfocused.app.ui.onboarding
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +28,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.stayfocused.app.ui.theme.MonkCanvas
+import com.stayfocused.app.ui.theme.MonkCard
+import com.stayfocused.app.ui.theme.MonkCardAlt
+import com.stayfocused.app.ui.theme.MonkDanger
+import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkInk
+import com.stayfocused.app.ui.theme.MonkLine
+import com.stayfocused.app.ui.theme.MonkModeColorScheme
+import com.stayfocused.app.ui.theme.MonkMuted
+import com.stayfocused.app.ui.theme.MonkText
 
 /**
  * Pure helper for Private DNS notice configuration, intents, and instruction steps.
@@ -43,14 +54,14 @@ object PrivateDnsNoticeHelper {
     const val EXPLANATION_TITLE = "Disable Private DNS for Website Blocking"
     const val EXPLANATION_TEXT =
         "Android's Private DNS (DNS-over-TLS) encrypts domain queries directly to external servers, " +
-            "bypassing on-device DNS blocking. Turning Private DNS Off allows Stay Focused to block " +
+            "bypassing on-device DNS blocking. Turning Private DNS Off allows Monk Mode to block " +
             "distracting websites across Chrome, Firefox, and all WebViews."
 
     fun getSetupInstructions(): List<String> = listOf(
         "Open device Settings -> Network & internet (or Connection & sharing on Realme).",
         "Scroll down and tap on Private DNS.",
         "Select 'Off' (or 'Automatic').",
-        "Return to Stay Focused to verify website blocking is active."
+        "Return to Monk Mode to verify website blocking is active."
     )
 
     fun createPrivateDnsSettingsIntent(): Intent {
@@ -59,16 +70,6 @@ object PrivateDnsNoticeHelper {
         }
     }
 }
-
-private val NoticeDarkColorScheme = darkColorScheme(
-    primary = Color(0xFF6366F1), // Indigo 500
-    onPrimary = Color.White,
-    background = Color(0xFF0F172A), // Slate 900
-    surface = Color(0xFF1E293B), // Slate 800
-    surfaceVariant = Color(0xFF334155), // Slate 700
-    onSurface = Color(0xFFF8FAFC),
-    error = Color(0xFFF59E0B) // Amber 500 for warning/notice
-)
 
 /**
  * An onboarding / in-app card alerting the user to toggle Android Private DNS to "Off".
@@ -80,9 +81,11 @@ fun PrivateDnsNoticeCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, MonkLine, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = NoticeDarkColorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MonkCard)
     ) {
         Column(
             modifier = Modifier.padding(20.dp)
@@ -95,7 +98,7 @@ fun PrivateDnsNoticeCard(
                     modifier = Modifier
                         .size(44.dp)
                         .background(
-                            color = NoticeDarkColorScheme.error.copy(alpha = 0.2f),
+                            color = MonkEmber.copy(alpha = 0.15f),
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
@@ -107,7 +110,7 @@ fun PrivateDnsNoticeCard(
                     text = PrivateDnsNoticeHelper.EXPLANATION_TITLE,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = NoticeDarkColorScheme.onSurface
+                        color = MonkText
                     ),
                     modifier = Modifier.weight(1f)
                 )
@@ -118,7 +121,7 @@ fun PrivateDnsNoticeCard(
             Text(
                 text = PrivateDnsNoticeHelper.EXPLANATION_TEXT,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    color = NoticeDarkColorScheme.onSurface.copy(alpha = 0.8f)
+                    color = MonkMuted
                 )
             )
 
@@ -137,7 +140,7 @@ fun PrivateDnsNoticeCard(
                         modifier = Modifier
                             .size(24.dp)
                             .background(
-                                color = NoticeDarkColorScheme.primary.copy(alpha = 0.25f),
+                                color = MonkEmber.copy(alpha = 0.25f),
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
@@ -145,7 +148,7 @@ fun PrivateDnsNoticeCard(
                         Text(
                             text = "${index + 1}",
                             style = MaterialTheme.typography.labelSmall.copy(
-                                color = NoticeDarkColorScheme.primary,
+                                color = MonkEmber,
                                 fontWeight = FontWeight.Bold
                             )
                         )
@@ -156,7 +159,7 @@ fun PrivateDnsNoticeCard(
                     Text(
                         text = step,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = NoticeDarkColorScheme.onSurface.copy(alpha = 0.9f)
+                            color = MonkText
                         ),
                         modifier = Modifier.weight(1f)
                     )
@@ -173,9 +176,11 @@ fun PrivateDnsNoticeCard(
                     OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MonkLine),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkMuted)
                     ) {
-                        Text(text = "Later", color = NoticeDarkColorScheme.onSurface)
+                        Text(text = "Later")
                     }
                 }
 
@@ -184,8 +189,8 @@ fun PrivateDnsNoticeCard(
                     modifier = Modifier.weight(if (onDismiss != null) 1.5f else 1f),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = NoticeDarkColorScheme.primary,
-                        contentColor = NoticeDarkColorScheme.onPrimary
+                        containerColor = MonkEmber,
+                        contentColor = MonkInk
                     )
                 ) {
                     Text(text = "Open Network Settings", fontWeight = FontWeight.SemiBold)
@@ -204,7 +209,7 @@ fun PrivateDnsSetupScreen(
     onContinue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    MaterialTheme(colorScheme = NoticeDarkColorScheme) {
+    MaterialTheme(colorScheme = MonkModeColorScheme) {
         Surface(
             modifier = modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
@@ -228,7 +233,7 @@ fun PrivateDnsSetupScreen(
                         modifier = Modifier
                             .size(72.dp)
                             .background(
-                                color = NoticeDarkColorScheme.primary.copy(alpha = 0.15f),
+                                color = MonkEmber.copy(alpha = 0.15f),
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
@@ -242,7 +247,7 @@ fun PrivateDnsSetupScreen(
                         text = "Website Protection Setup",
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MonkText
                         ),
                         textAlign = TextAlign.Center
                     )
@@ -252,7 +257,7 @@ fun PrivateDnsSetupScreen(
                     Text(
                         text = "Configure Private DNS so Stay Focused can filter blocked domains.",
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                            color = MonkMuted
                         ),
                         textAlign = TextAlign.Center
                     )
@@ -274,8 +279,8 @@ fun PrivateDnsSetupScreen(
                         onClick = onContinue,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = MonkEmber,
+                            contentColor = MonkInk
                         ),
                         modifier = Modifier
                             .fillMaxWidth()

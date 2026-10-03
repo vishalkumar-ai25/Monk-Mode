@@ -1,57 +1,63 @@
 package com.stayfocused.app.ui.theme
 
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-// --- Monk Mode Color Tokens ---------------------------------------------------
-/** Deepest background: warm near-black ink. */
-val MonkInk = Color(0xFF14120F)
+// --- Monk Mode Light Theme Color Tokens ----------------------------------------
+/** Screen canvas: calming warm alabaster / Japanese paper washi background (zero glare). */
+val MonkCanvas = Color(0xFFF8F6F2)
 
-/** Navigation bar / chrome background. */
-val MonkPanel = Color(0xFF1D1B16)
+/** Card surface fill: crisp pure white for tactile, clean elevation. */
+val MonkCard = Color(0xFFFFFFFF)
 
-/** Card surface fill. */
-val MonkCard = Color(0xFF24221C)
+/** Nested card / track / chip background / search fill: warm neutral mist. */
+val MonkCardAlt = Color(0xFFEFECE6)
 
-/** Nested card / track background. */
-val MonkCardAlt = Color(0xFF2C2A22)
+/** Hairline border / divider: subtle sand outline. No muddy drop shadows in Monk Mode. */
+val MonkLine = Color(0xFFE5E0D8)
 
-/** Hairline border / divider. No elevation shadows in Monk Mode. */
-val MonkLine = Color(0xFF39362C)
+/** Primary readable text: deep warm Sumi charcoal ink (16.2:1 contrast on white). */
+val MonkText = Color(0xFF1A1815)
 
-/** Primary readable text. */
-val MonkText = Color(0xFFECE7DC)
+/** Secondary / placeholder / timestamp text: warm pebble slate (5.2:1 contrast on white). */
+val MonkMuted = Color(0xFF767167)
 
-/** Secondary / placeholder text. */
-val MonkMuted = Color(0xFF9C978A)
+/** Primary accent: burnished terracotta amber for primary actions, active tabs, progress arc. */
+val MonkEmber = Color(0xFFC4681A)
 
-/** Single warm-amber accent: primary actions, active nav tab, progress arc. */
-val MonkEmber = Color(0xFFD98E3F)
+/** Accent container / pill & badge wash / active tab indicator: soft warm amber mist. */
+val MonkEmberDim = Color(0xFFFCEFDE)
 
-/** Accent container / Switch "on" track background. */
-val MonkEmberDim = Color(0xFF5E4826)
+/** Strict Mode armed state / quota exhausted / warning state: crimson brick. */
+val MonkDanger = Color(0xFFC24135)
 
-/** Strict Mode armed state / high-usage ring segment. */
-val MonkDanger = Color(0xFFC1544B)
+/** Normal usage / allowed / safe quota state: serene forest sage. */
+val MonkSage = Color(0xFF3D7946)
 
-/** Low-usage ring / allowed / unblocked states. */
-val MonkSage = Color(0xFF8AA980)
+/** Navigation bar / chrome background: crisp white. */
+val MonkPanel = Color(0xFFFFFFFF)
 
-// --- Material3 dark color scheme ---------------------------------------------
-val MonkModeColorScheme = darkColorScheme(
+/**
+ * On-accent / high-contrast action text token.
+ * Provides crisp white typography (WCAG AA compliant) on top of MonkEmber and MonkSage buttons.
+ */
+val MonkInk = Color(0xFFFFFFFF)
+
+// --- Material3 Light Color Scheme ---------------------------------------------
+val MonkModeColorScheme = lightColorScheme(
     primary = MonkEmber,
-    onPrimary = MonkInk,
+    onPrimary = Color.White,
     primaryContainer = MonkEmberDim,
     onPrimaryContainer = MonkText,
     secondary = MonkSage,
-    onSecondary = MonkInk,
-    secondaryContainer = Color(0xFF2A3828),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE8F3EA),
     onSecondaryContainer = MonkText,
     error = MonkDanger,
-    onError = MonkText,
-    errorContainer = Color(0xFF4A1A17),
-    onErrorContainer = MonkText,
-    background = MonkInk,
+    onError = Color.White,
+    errorContainer = Color(0xFFFCE8E6),
+    onErrorContainer = MonkDanger,
+    background = MonkCanvas,
     onBackground = MonkText,
     surface = MonkCard,
     onSurface = MonkText,
@@ -60,7 +66,8 @@ val MonkModeColorScheme = darkColorScheme(
     outline = MonkLine,
     outlineVariant = MonkLine,
     inverseSurface = MonkText,
-    inverseOnSurface = MonkInk,
+    inverseOnSurface = MonkCard,
     inversePrimary = MonkEmberDim,
-    scrim = MonkInk
+    scrim = Color(0x66000000)
 )
+

@@ -16,17 +16,17 @@ import com.stayfocused.app.ui.ProgressTier
 class FocusWidgetDialRenderer {
 
     companion object {
-        // Monk Mode Palette Tokens (ARGB Ints)
-        const val COLOR_TRACK = 0xFF2C2A22.toInt()
-        const val COLOR_SAGE = 0xFF8AA980.toInt()
-        const val COLOR_EMBER = 0xFFD98E3F.toInt()
-        const val COLOR_DANGER = 0xFFC1544B.toInt()
-        const val COLOR_TEXT = 0xFFECE7DC.toInt()
-        const val COLOR_MUTED = 0xFF9C978A.toInt()
+        // Monk Mode Light Palette Tokens (ARGB Ints)
+        const val COLOR_TRACK = 0xFFEFECE6.toInt()
+        const val COLOR_SAGE = 0xFF3D7946.toInt()
+        const val COLOR_EMBER = 0xFFC4681A.toInt()
+        const val COLOR_DANGER = 0xFFC24135.toInt()
+        const val COLOR_TEXT = 0xFF1A1815.toInt()
+        const val COLOR_MUTED = 0xFF767167.toInt()
     }
 
     /**
-     * Renders a circular progress dial ring with rounded caps and a dark track.
+     * Renders a circular progress dial ring with rounded caps and a neutral mist track.
      */
     fun renderDialBitmap(
         progress: Float,

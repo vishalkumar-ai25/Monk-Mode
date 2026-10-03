@@ -1000,8 +1000,8 @@ fun AppLimitItemCard(
                         checked = entity.isBlocked,
                         onCheckedChange = onToggleBlocked,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = MonkText,
-                            checkedTrackColor = MonkEmberDim,
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = MonkEmber,
                             checkedBorderColor = MonkEmber,
                             uncheckedThumbColor = MonkMuted,
                             uncheckedTrackColor = MonkCardAlt,

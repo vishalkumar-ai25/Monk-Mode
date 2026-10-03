@@ -206,7 +206,7 @@ private fun ProtectionCheckRow(
         if (check.status != ProtectionCheckStatus.PASS && check.actionLabel != null) {
             Spacer(modifier = Modifier.width(8.dp))
             val (btnBg, btnFg) = if (check.status == ProtectionCheckStatus.FAIL) {
-                MonkDanger to MonkText
+                MonkDanger to MonkInk
             } else {
                 MonkEmber to MonkInk
             }

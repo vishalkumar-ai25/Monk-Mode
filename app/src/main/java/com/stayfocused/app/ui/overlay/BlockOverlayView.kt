@@ -17,9 +17,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.border
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -32,15 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stayfocused.app.domain.model.BlockReason
 import com.stayfocused.app.domain.model.LimitType
-
-private val OverlayDarkColorScheme = darkColorScheme(
-    primary = Color(0xFF6366F1), // Indigo 500
-    onPrimary = Color.White,
-    background = Color(0xFF0F172A), // Slate 900
-    surface = Color(0xFF1E293B), // Slate 800
-    onSurface = Color(0xFFF8FAFC),
-    error = Color(0xFFEF4444)
-)
+import com.stayfocused.app.ui.theme.MonkLine
+import com.stayfocused.app.ui.theme.MonkModeColorScheme
 
 @Composable
 fun BlockOverlayContent(
@@ -49,7 +43,7 @@ fun BlockOverlayContent(
     modifier: Modifier = Modifier,
     quote: String = remember { BlockOverlayQuotes.getRandomQuote() }
 ) {
-    MaterialTheme(colorScheme = OverlayDarkColorScheme) {
+    MaterialTheme(colorScheme = MonkModeColorScheme) {
         Surface(
             modifier = modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
@@ -111,7 +105,9 @@ fun BlockOverlayContent(
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, MonkLine, RoundedCornerShape(16.dp))
                     ) {
                         Column(
                             modifier = Modifier.padding(20.dp),

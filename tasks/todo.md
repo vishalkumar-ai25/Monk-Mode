@@ -129,4 +129,30 @@
   - [x] Code review via `code-reviewer` subagent and resolved all findings.
   - [x] Install on connected phone via ADB and verify live.
 
+## Phase 21: Monk Mode Light Theme & UI/UX Redesign
+
+- [x] **Task 1: Light Theme Tokens & Material3 Color Scheme**
+  - [x] Define `MonkCanvas`, `MonkCard`, `MonkCardAlt`, `MonkLine`, `MonkText`, `MonkMuted`, `MonkEmber`, `MonkEmberDim`, `MonkSage`, `MonkDanger`, `MonkPanel`, `MonkInk`.
+  - [x] Update `MonkModeColorScheme` using `lightColorScheme(...)` in `MonkModeTheme.kt`.
+
+- [x] **Task 2: System Bars & Navigation Chrome Polish**
+  - [x] Configure `WindowInsetsControllerCompat` in `MainActivity.kt` for dark status/nav icons.
+  - [x] Style `NavigationBar` with `MonkPanel`, top `MonkLine` border, and `MonkEmberDim` indicator.
+
+- [x] **Task 3: Dial, Widget & Share Generator Palette Update**
+  - [x] Update `FocusWidgetDialRenderer.kt` ARGB tokens.
+  - [x] Update `FocusSummaryBitmapGenerator.kt` canvas and ink palette tokens.
+  - [x] Verify `DailyUsageDial.kt` track and progress arc rendering.
+
+- [x] **Task 4: Screen & Component Harmony Audit**
+  - [x] Audit `DashboardScreen.kt`, `AppLimitsScreen.kt`, `WebBlockerScreen.kt`, `NotificationVaultScreen.kt`, `StrictLockScreen.kt`.
+  - [x] Audit dialogs and cards for contrast and border clarity.
+
+- [x] **Task 5: Verification, Code Review & On-Device Deployment**
+  - [x] Run `./gradlew testDebugUnitTest` (pass all unit tests).
+  - [x] Run `./gradlew assembleDebug` (0 errors).
+  - [x] Run senior `code-reviewer` subagent and obtain approval.
+  - [x] Install on device `V49TW4RWQOZ5IFBA` and capture screenshot.
+
+
 

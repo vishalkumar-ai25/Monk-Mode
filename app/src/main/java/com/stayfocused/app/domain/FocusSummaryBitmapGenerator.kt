@@ -10,7 +10,7 @@ import com.stayfocused.app.domain.model.DailyFocusSummaryData
 
 /**
  * High-performance on-device renderer generating a shareable focus summary image.
- * Uses Monk Mode's dark visual identity and renders directly to an Android Bitmap.
+ * Uses Monk Mode's light visual identity and renders directly to an Android Bitmap.
  */
 class FocusSummaryBitmapGenerator(
     private val width: Int = 1080,
@@ -18,16 +18,16 @@ class FocusSummaryBitmapGenerator(
 ) {
 
     companion object {
-        private const val COLOR_INK = 0xFF0E0E10.toInt()
-        private const val COLOR_CARD = 0xFF16161A.toInt()
-        private const val COLOR_CARD_ALT = 0xFF1C1C22.toInt()
-        private const val COLOR_LINE = 0xFF2C2C35.toInt()
-        private const val COLOR_TEXT = 0xFFF0ECE1.toInt()
-        private const val COLOR_MUTED = 0xFF8E8E93.toInt()
-        private const val COLOR_EMBER = 0xFFD48852.toInt()
-        private const val COLOR_SAGE = 0xFF87A987.toInt()
-        private const val COLOR_DANGER = 0xFFE05D52.toInt()
-        private const val COLOR_TRACK = 0xFF22222B.toInt()
+        private const val COLOR_CANVAS = 0xFFF8F6F2.toInt()
+        private const val COLOR_CARD = 0xFFFFFFFF.toInt()
+        private const val COLOR_CARD_ALT = 0xFFEFECE6.toInt()
+        private const val COLOR_LINE = 0xFFE5E0D8.toInt()
+        private const val COLOR_TEXT = 0xFF1A1815.toInt()
+        private const val COLOR_MUTED = 0xFF767167.toInt()
+        private const val COLOR_EMBER = 0xFFC4681A.toInt()
+        private const val COLOR_SAGE = 0xFF3D7946.toInt()
+        private const val COLOR_DANGER = 0xFFC24135.toInt()
+        private const val COLOR_TRACK = 0xFFEFECE6.toInt()
     }
 
     /**
@@ -38,7 +38,7 @@ class FocusSummaryBitmapGenerator(
         val canvas = Canvas(bitmap)
 
         // 1. Full Canvas Background
-        canvas.drawColor(COLOR_INK)
+        canvas.drawColor(COLOR_CANVAS)
 
         // 2. Main Card Panel
         val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

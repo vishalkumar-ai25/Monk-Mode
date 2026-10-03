@@ -38,7 +38,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.HorizontalDivider
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.strict.FailsafeManager
@@ -49,7 +52,9 @@ import com.stayfocused.app.ui.screens.StrictLockScreen
 import com.stayfocused.app.ui.screens.WebBlockerScreen
 import com.stayfocused.app.ui.theme.MonkCardAlt
 import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkEmberDim
 import com.stayfocused.app.ui.theme.MonkInk
+import com.stayfocused.app.ui.theme.MonkLine
 import com.stayfocused.app.ui.theme.MonkModeColorScheme
 import com.stayfocused.app.ui.theme.MonkMuted
 import com.stayfocused.app.ui.theme.MonkPanel
@@ -86,6 +91,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Set status bar and navigation bar icons to dark for light theme
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
+
         database = StayFocusedDatabase.getInstance(applicationContext)
         failsafeManager = FailsafeManager(
             recoveryCodeDao = database.recoveryCodeDao(),
@@ -198,10 +210,13 @@ fun MainNavigationHost(
 
     Scaffold(
         bottomBar = {
-            NavigationBar(
-                containerColor = MonkPanel,
-                contentColor = MonkMuted
-            ) {
+            Column {
+                HorizontalDivider(color = MonkLine, thickness = 1.dp)
+                NavigationBar(
+                    containerColor = MonkPanel,
+                    contentColor = MonkMuted,
+                    tonalElevation = 0.dp
+                ) {
                 NavTab.entries.forEach { tab ->
                     val isSelected = tab == selectedTab
                     NavigationBarItem(
@@ -238,14 +253,15 @@ fun MainNavigationHost(
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MonkEmber,
                             selectedTextColor = MonkEmber,
-                            indicatorColor = MonkCardAlt,
+                            indicatorColor = MonkEmberDim,
                             unselectedIconColor = MonkMuted,
                             unselectedTextColor = MonkMuted
                         )
                     )
                 }
             }
-        },
+        }
+    },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Box(

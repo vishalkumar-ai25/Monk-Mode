@@ -172,10 +172,12 @@ fun FocusSchedulesCard(
                                             }
                                         },
                                         colors = SwitchDefaults.colors(
-                                            checkedThumbColor = MonkSage,
-                                            checkedTrackColor = MonkCard,
+                                            checkedThumbColor = Color.White,
+                                            checkedTrackColor = MonkSage,
+                                            checkedBorderColor = MonkSage,
                                             uncheckedThumbColor = MonkMuted,
-                                            uncheckedTrackColor = MonkCardAlt
+                                            uncheckedTrackColor = MonkCardAlt,
+                                            uncheckedBorderColor = MonkLine
                                         )
                                     )
                                 }
@@ -216,13 +218,14 @@ fun FocusSchedulesCard(
 
                                     // Challenge tag
                                     val challengeTag = when (schedule.deactivationChallenge) {
-                                        "RANDOM_TEXT" -> "Quote Challenge"
+                                        "RANDOM_TEXT" -> "Quote"
                                         "COOL_DOWN" -> "24h Delay"
                                         else -> "Timer Only"
                                     }
                                     Text(
                                         text = challengeTag,
                                         fontSize = 11.sp,
+                                        maxLines = 1,
                                         color = MonkEmber,
                                         modifier = Modifier.align(Alignment.CenterVertically)
                                     )
