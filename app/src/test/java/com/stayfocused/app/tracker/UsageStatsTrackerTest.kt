@@ -248,6 +248,147 @@ class UsageStatsTrackerTest {
     }
 
     @Test
+    fun testProcessEventStreamIgnoresEventsEntirelyBeforeWindowStart() {
+        val tracker = UsageStatsTracker(context = context)
+        val midnight = 1727913600000L // 00:00:00
+        val windowEnd = midnight + 12 * 3600 * 1000L // 12:00:00
+
+        // Yesterday event from 16:00 to 17:30
+        val yesterdayStart = midnight - 8 * 3600 * 1000L
+        val yesterdayEnd = midnight - 6 * 3600 * 1000L - 30 * 60 * 1000L
+
+        val events = sequenceOf(
+            UsageEventRecord("com.google.android.youtube", "MainActivity", UsageStatsTracker.EVENT_ACTIVITY_RESUMED, yesterdayStart),
+            UsageEventRecord("com.google.android.youtube", "MainActivity", UsageStatsTracker.EVENT_ACTIVITY_PAUSED, yesterdayEnd)
+        )
+
+        val result = tracker.processEventStream(events, windowStart = midnight, windowEnd = windowEnd)
+        assertTrue("Events entirely before midnight must yield 0 ms", result.isEmpty())
+    }
+
+    @Test
+    fun testProcessEventStreamClampsSessionCrossingMidnight() {
+        val tracker = UsageStatsTracker(context = context)
+        val midnight = 1727913600000L // 00:00:00
+        val windowEnd = midnight + 4 * 3600 * 1000L
+
+        // YouTube opened at 23:45 yesterday (15m before midnight) and paused at 00:15 today (15m after midnight)
+        val sessionStart = midnight - 15 * 60 * 1000L
+        val sessionEnd = midnight + 15 * 60 * 1000L
+
+        val events = sequenceOf(
+            UsageEventRecord("com.google.android.youtube", "WatchActivity", UsageStatsTracker.EVENT_ACTIVITY_RESUMED, sessionStart),
+            UsageEventRecord("com.google.android.youtube", "WatchActivity", UsageStatsTracker.EVENT_ACTIVITY_PAUSED, sessionEnd)
+        )
+
+        val result = tracker.processEventStream(events, windowStart = midnight, windowEnd = windowEnd)
+        assertEquals("Should only credit 15 minutes that occurred after midnight", 15 * 60 * 1000L, result["com.google.android.youtube"])
+    }
+
+    @Test
+    fun testProcessEventStreamCalculatesSessionInsideWindow() {
+        val tracker = UsageStatsTracker(context = context)
+        val midnight = 1727913600000L
+        val windowEnd = midnight + 12 * 3600 * 1000L
+
+        val start = midnight + 2 * 3600 * 1000L // 02:00
+        val end = midnight + 4 * 3600 * 1000L + 5 * 60 * 1000L // 04:05 (2h 5m)
+
+        val events = sequenceOf(
+            UsageEventRecord("com.google.android.youtube", "MainActivity", UsageStatsTracker.EVENT_ACTIVITY_RESUMED, start),
+            UsageEventRecord("com.google.android.youtube", "MainActivity", UsageStatsTracker.EVENT_ACTIVITY_PAUSED, end)
+        )
+
+        val result = tracker.processEventStream(events, windowStart = midnight, windowEnd = windowEnd)
+        val expectedMs = (2 * 3600 + 5 * 60) * 1000L
+        assertEquals("Should credit exactly 2 hrs 05 mins", expectedMs, result["com.google.android.youtube"])
+    }
+
+    @Test
+    fun testProcessEventStreamPausesOnScreenNonInteractiveAndKeyguard() {
+        val tracker = UsageStatsTracker(context = context)
+        val midnight = 1727913600000L
+        val windowEnd = midnight + 12 * 3600 * 1000L
+
+        val t1 = midnight + 3600 * 1000L // 01:00
+        val t2 = t1 + 10 * 60 * 1000L    // 01:10 (Screen locks)
+        val t3 = t2 + 20 * 60 * 1000L    // 01:30 (Screen unlocks & resumes)
+        val t4 = t3 + 15 * 60 * 1000L    // 01:45 (User exits app)
+
+        val events = sequenceOf(
+            UsageEventRecord("com.stayfocused", null, UsageStatsTracker.EVENT_ACTIVITY_RESUMED, t1),
+            UsageEventRecord(null, null, UsageStatsTracker.EVENT_KEYGUARD_SHOWN, t2),
+            UsageEventRecord("com.stayfocused", null, UsageStatsTracker.EVENT_ACTIVITY_RESUMED, t3),
+            UsageEventRecord("com.stayfocused", null, UsageStatsTracker.EVENT_ACTIVITY_PAUSED, t4)
+        )
+
+        val result = tracker.processEventStream(events, windowStart = midnight, windowEnd = windowEnd)
+        // 10m + 15m = 25m total (locked 20m excluded)
+        val expectedMs = 25 * 60 * 1000L
+        assertEquals("Screen locked time must not be counted", expectedMs, result["com.stayfocused"])
+    }
+
+    @Test
+    fun testProcessEventStreamHandlesActiveAppAtWindowEnd() {
+        val tracker = UsageStatsTracker(context = context)
+        val midnight = 1727913600000L
+        val windowEnd = midnight + 30 * 60 * 1000L // 00:30
+
+        val start = midnight + 10 * 60 * 1000L // 00:10
+
+        val events = sequenceOf(
+            UsageEventRecord("com.android.chrome", null, UsageStatsTracker.EVENT_ACTIVITY_RESUMED, start)
+            // No pause event, still foreground at windowEnd
+        )
+
+        val result = tracker.processEventStream(events, windowStart = midnight, windowEnd = windowEnd)
+        assertEquals("App active at windowEnd must be credited up to windowEnd", 20 * 60 * 1000L, result["com.android.chrome"])
+    }
+
+    @Test
+    fun testProcessEventStreamHandlesActivitySwitchWithinSamePackage() {
+        val tracker = UsageStatsTracker(context = context)
+        val midnight = 1727913600000L
+        val windowEnd = midnight + 2 * 3600 * 1000L
+
+        val t1 = midnight + 10 * 60 * 1000L // 00:10 Main starts
+        val t2 = midnight + 15 * 60 * 1000L // 00:15 Detail starts
+        val t2OldPause = t2 + 50            // 00:15.050 Main pauses (out of order / transition)
+        val t3 = midnight + 30 * 60 * 1000L // 00:30 Detail pauses
+
+        val events = sequenceOf(
+            UsageEventRecord("com.google.android.youtube", "MainActivity", UsageStatsTracker.EVENT_ACTIVITY_RESUMED, t1),
+            UsageEventRecord("com.google.android.youtube", "WatchActivity", UsageStatsTracker.EVENT_ACTIVITY_RESUMED, t2),
+            UsageEventRecord("com.google.android.youtube", "MainActivity", UsageStatsTracker.EVENT_ACTIVITY_PAUSED, t2OldPause),
+            UsageEventRecord("com.google.android.youtube", "WatchActivity", UsageStatsTracker.EVENT_ACTIVITY_PAUSED, t3)
+        )
+
+        val result = tracker.processEventStream(events, windowStart = midnight, windowEnd = windowEnd)
+        // 00:10 to 00:30 = 20 minutes
+        assertEquals("Internal activity transitions must not prematurely terminate active session", 20 * 60 * 1000L, result["com.google.android.youtube"])
+    }
+
+    @Test
+    fun testQueryForegroundUsageWithEventStreamProvider() {
+        val midnight = 1727913600000L
+        val windowEnd = midnight + 3600 * 1000L
+
+        val events = sequenceOf(
+            UsageEventRecord("com.google.android.youtube", null, UsageStatsTracker.EVENT_ACTIVITY_RESUMED, midnight + 1000L),
+            UsageEventRecord("com.google.android.youtube", null, UsageStatsTracker.EVENT_ACTIVITY_PAUSED, midnight + 61000L)
+        )
+
+        val tracker = UsageStatsTracker(
+            context = context,
+            appOpsChecker = { true },
+            eventStreamProvider = { _, _ -> events }
+        )
+
+        val result = tracker.queryForegroundUsage(startTime = midnight, endTime = windowEnd)
+        assertEquals(60000L, result["com.google.android.youtube"])
+    }
+
+    @Test
     fun testQueryPackageUsageTodayReturnsSpecificAppUsage() {
         val mockData = mapOf(
             "com.google.android.youtube" to 500000L,
