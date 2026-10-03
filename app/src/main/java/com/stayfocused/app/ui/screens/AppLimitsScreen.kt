@@ -13,6 +13,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -215,8 +217,10 @@ fun AppLimitsScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val popularPresets = listOf(
                                 Triple("YouTube", "com.google.android.youtube", 15),
@@ -229,7 +233,6 @@ fun AppLimitsScreen(
                                 val existing = appLimits.find { it.packageName == pkg }
                                 PresetButton(
                                     text = name,
-                                    modifier = Modifier.weight(1f),
                                     onClick = {
                                         if (activeStrictSession != null && existing != null) {
                                             Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
@@ -1207,11 +1210,11 @@ private fun PresetButton(
         onClick = onClick,
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        contentPadding = PaddingValues(vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
     ) {
-        Text(text = text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
     }
 }
 
@@ -1225,11 +1228,11 @@ private fun PresetDomainButton(
         onClick = onClick,
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        contentPadding = PaddingValues(vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
     ) {
-        Text(text = domain, fontSize = 11.sp)
+        Text(text = domain, fontSize = 12.sp, maxLines = 1, softWrap = false)
     }
 }
 
