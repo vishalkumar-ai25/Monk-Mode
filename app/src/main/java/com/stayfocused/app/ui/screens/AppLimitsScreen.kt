@@ -875,7 +875,7 @@ fun AppLimitsScreen(
                             val existing = appLimits.find { it.packageName == target.packageName }
                             val mins = minutesLimit.toInt()
                             val launches = launchLimit.toInt()
-                            val isZeroBlock = mins == 0
+                            val isZeroBlock = mins == 0 && launches == 0
 
                             // Strict Mode Invariant: If Strict Mode is active, existing limits cannot be modified or loosened
                             if (activeStrictSession != null && existing != null) {
@@ -942,6 +942,10 @@ fun AppLimitItemCard(
             .fillMaxWidth()
             .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
     ) {
+        val isLimitExceeded = (entity.dailyTimeLimitMinutes > 0 && entity.currentDayUsageMs >= entity.dailyTimeLimitMinutes * 60_000L) ||
+            (entity.dailyLaunchLimit > 0 && entity.currentDayLaunches >= entity.dailyLaunchLimit) ||
+            (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0 && entity.isBlocked)
+
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -962,6 +966,8 @@ fun AppLimitItemCard(
                     val usedMin = entity.currentDayUsageMs / (60 * 1000L)
                     val limitText = if (entity.dailyTimeLimitMinutes > 0) {
                         "${usedMin}m used / ${entity.dailyTimeLimitMinutes}m daily limit"
+                    } else if (entity.dailyLaunchLimit > 0) {
+                        "${entity.currentDayLaunches} / ${entity.dailyLaunchLimit} launches today"
                     } else if (entity.isBlocked) {
                         "Permanently Shielded (0m)"
                     } else {
@@ -970,7 +976,7 @@ fun AppLimitItemCard(
                     Text(
                         text = limitText,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = if (entity.isBlocked) MonkDanger else MonkEmber,
+                            color = if (isLimitExceeded) MonkDanger else MonkEmber,
                             fontSize = 11.sp
                         )
                     )
@@ -989,18 +995,42 @@ fun AppLimitItemCard(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                Switch(
-                    checked = entity.isBlocked,
-                    onCheckedChange = onToggleBlocked,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MonkText,
-                        checkedTrackColor = MonkEmberDim,
-                        checkedBorderColor = MonkEmber,
-                        uncheckedThumbColor = MonkMuted,
-                        uncheckedTrackColor = MonkCardAlt,
-                        uncheckedBorderColor = MonkLine
+                if (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0) {
+                    Switch(
+                        checked = entity.isBlocked,
+                        onCheckedChange = onToggleBlocked,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MonkText,
+                            checkedTrackColor = MonkEmberDim,
+                            checkedBorderColor = MonkEmber,
+                            uncheckedThumbColor = MonkMuted,
+                            uncheckedTrackColor = MonkCardAlt,
+                            uncheckedBorderColor = MonkLine
+                        )
                     )
-                )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                if (isLimitExceeded) MonkDanger.copy(alpha = 0.15f) else MonkEmberDim.copy(alpha = 0.5f),
+                                RoundedCornerShape(6.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (isLimitExceeded) MonkDanger else MonkEmber,
+                                RoundedCornerShape(6.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isLimitExceeded) "Locked" else "Active",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isLimitExceeded) MonkDanger else MonkEmber
+                        )
+                    }
+                }
             }
 
             // Visual Progress Bar for time limits
@@ -1107,6 +1137,7 @@ fun InstalledAppRow(
                     Text(
                         text = if (existingLimit != null) {
                             if (existingLimit.dailyTimeLimitMinutes > 0) "${existingLimit.dailyTimeLimitMinutes}m limit configured"
+                            else if (existingLimit.dailyLaunchLimit > 0) "${existingLimit.dailyLaunchLimit} launch limit configured"
                             else if (existingLimit.isBlocked) "Shielded"
                             else "Unrestricted"
                         } else {

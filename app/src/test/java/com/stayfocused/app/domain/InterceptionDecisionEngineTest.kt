@@ -173,6 +173,66 @@ class InterceptionDecisionEngineTest {
     }
 
     @Test
+    fun testAppWithDailyTimeLimitAllowedWhenUsageWithinQuotaEvenIfIsBlockedTrue() {
+        // Reproduces user bug: Chrome has 30m daily limit, 0m used, isBlocked = true
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.android.chrome",
+            appName = "Chrome",
+            dailyTimeLimitMinutes = 30,
+            dailyLaunchLimit = 0,
+            currentDayUsageMs = 0L,
+            isBlocked = true
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.android.chrome",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Chrome must be allowed when within 30m quota even if isBlocked is true", result is InterceptionResult.Allow)
+    }
+
+    @Test
+    fun testAppWithDailyTimeLimitBlockedWhenQuotaExceededEvenIfIsBlockedTrue() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.android.chrome",
+            appName = "Chrome",
+            dailyTimeLimitMinutes = 30,
+            dailyLaunchLimit = 0,
+            currentDayUsageMs = 30 * 60 * 1000L,
+            isBlocked = true
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.android.chrome",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit
+        )
+        val result = engine.evaluate(context)
+        assertTrue(result is InterceptionResult.Block)
+        val block = result as InterceptionResult.Block
+        assertTrue(block.reason is BlockReason.LimitReached)
+        assertEquals(LimitType.TIME_LIMIT, (block.reason as BlockReason.LimitReached).limitType)
+    }
+
+    @Test
+    fun testAppWithLaunchLimitAllowedWhenWithinQuotaEvenIfIsBlockedTrue() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.zhiliaoapp.musically",
+            appName = "TikTok",
+            dailyLaunchLimit = 5,
+            currentDayLaunches = 2,
+            isBlocked = true
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.zhiliaoapp.musically",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit
+        )
+        val result = engine.evaluate(context)
+        assertTrue("App must be allowed when within launch quota even if isBlocked is true", result is InterceptionResult.Allow)
+    }
+
+    @Test
     fun testAppBlockedWhenLaunchLimitReached() {
         val appLimit = AppLimitSnapshot(
             packageName = "com.zhiliaoapp.musically",

@@ -72,7 +72,7 @@ open class FocusNotificationListenerService : NotificationListenerService() {
                 .catch { e -> Log.e(TAG, "Error observing app limits for notifications", e) }
                 .collectLatest { limits ->
                     cachedBlockedPackages = limits.filter { limit ->
-                        limit.isBlocked ||
+                        (limit.isBlocked && limit.dailyTimeLimitMinutes == 0 && limit.dailyLaunchLimit == 0) ||
                             (limit.dailyTimeLimitMinutes > 0 && limit.currentDayUsageMs >= limit.dailyTimeLimitMinutes * 60_000L) ||
                             (limit.dailyLaunchLimit > 0 && limit.currentDayLaunches >= limit.dailyLaunchLimit)
                     }.map { it.packageName }.toSet()

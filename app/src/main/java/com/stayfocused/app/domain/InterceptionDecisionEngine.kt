@@ -52,9 +52,9 @@ class InterceptionDecisionEngine {
             }
         }
 
-        // Rule 3: Manual App Block
+        // Rule 3: Manual App Block (Permanently Shielded - only applies if no daily time or launch quota is configured)
         val limit = context.appLimit
-        if (limit != null && limit.isBlocked) {
+        if (limit != null && limit.isBlocked && limit.dailyTimeLimitMinutes == 0 && limit.dailyLaunchLimit == 0) {
             return InterceptionResult.Block(BlockReason.ManuallyBlocked(limit.appName))
         }
 

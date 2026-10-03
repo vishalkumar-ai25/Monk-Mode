@@ -503,7 +503,7 @@ fun DashboardScreen(
 
                             val matchingLimit = appLimits.find { it.packageName == app.packageName }
                             val isLimitActive = matchingLimit != null && matchingLimit.dailyTimeLimitMinutes > 0
-                            val isShielded = matchingLimit != null && matchingLimit.isBlocked
+                            val isShielded = matchingLimit != null && matchingLimit.isBlocked && matchingLimit.dailyTimeLimitMinutes == 0 && matchingLimit.dailyLaunchLimit == 0
 
                             Row(
                                 modifier = Modifier
@@ -967,12 +967,13 @@ fun DashboardScreen(
                             val isZeroBlock = (minutesLimit.toInt() == 0)
                             val updated = existingLimit?.copy(
                                 dailyTimeLimitMinutes = minutesLimit.toInt(),
-                                isBlocked = isZeroBlock || existingLimit.isBlocked
+                                isBlocked = isZeroBlock
                             ) ?: AppLimitEntity(
                                 packageName = app.packageName,
                                 appName = app.appName,
                                 dailyTimeLimitMinutes = minutesLimit.toInt(),
-                                isBlocked = isZeroBlock
+                                isBlocked = isZeroBlock,
+                                currentDayUsageMs = app.foregroundTimeMs
                             )
                             database.appLimitDao().upsertAppLimit(updated)
                             withContext(Dispatchers.Main) {
