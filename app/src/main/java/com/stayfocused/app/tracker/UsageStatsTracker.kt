@@ -61,24 +61,38 @@ class UsageStatsTracker(
 
         val manager = usageStatsManager ?: return emptyMap()
 
-        // Modern Android (API 28+): queryAndAggregateUsageStats returns pre-aggregated totals
-        return try {
+        // Tier 1: Modern Android queryAndAggregateUsageStats returns pre-aggregated totals
+        try {
             val aggregated = manager.queryAndAggregateUsageStats(startTime, endTime)
-            aggregated.mapNotNull { (pkg, stats) ->
+            val result = aggregated.mapNotNull { (pkg, stats) ->
                 if (stats.totalTimeInForeground > 0L) {
                     pkg.lowercase() to stats.totalTimeInForeground
                 } else null
             }.toMap()
-        } catch (e: Exception) {
-            // Fallback for API 26-27 or system query failure
-            try {
-                val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
-                statsList.groupBy { it.packageName.lowercase() }
-                    .mapValues { (_, list) -> list.sumOf { it.totalTimeInForeground } }
-                    .filterValues { it > 0L }
-            } catch (e2: Exception) {
-                emptyMap()
+            if (result.isNotEmpty()) {
+                return result
             }
+        } catch (_: Exception) {}
+
+        // Tier 2: Fallback for devices where queryAndAggregateUsageStats returns empty (INTERVAL_DAILY)
+        try {
+            val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime) ?: emptyList()
+            val result = statsList.filter { it.totalTimeInForeground > 0L }
+                .groupBy { it.packageName.lowercase() }
+                .mapValues { (_, list) -> list.maxOf { it.totalTimeInForeground } }
+            if (result.isNotEmpty()) {
+                return result
+            }
+        } catch (_: Exception) {}
+
+        // Tier 3: Fallback using finest available interval (INTERVAL_BEST)
+        return try {
+            val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_BEST, startTime, endTime) ?: emptyList()
+            statsList.filter { it.totalTimeInForeground > 0L }
+                .groupBy { it.packageName.lowercase() }
+                .mapValues { (_, list) -> list.maxOf { it.totalTimeInForeground } }
+        } catch (_: Exception) {
+            emptyMap()
         }
     }
 
@@ -105,6 +119,8 @@ class UsageStatsTracker(
 
         val pm = context.packageManager
         return usageMap.entries
+            .asSequence()
+            .filter { it.value > 0L }
             .sortedByDescending { it.value }
             .take(limit)
             .map { (pkg, usageMs) ->
@@ -120,6 +136,7 @@ class UsageStatsTracker(
                     foregroundTimeMs = usageMs
                 )
             }
+            .toList()
     }
 
     /**
@@ -135,16 +152,28 @@ class UsageStatsTracker(
 
     /**
      * Synchronizes today's usage statistics into Room DB for all registered AppLimitEntity records.
+     * Includes automatic 12:00 AM midnight reset catch-up if exact alarm was suppressed by OEM.
      */
     suspend fun syncUsageWithDatabase(appLimitDao: AppLimitDao) {
         if (!hasUsageStatsPermission()) return
 
-        val usageMap = queryForegroundUsage()
+        val startOfToday = getStartOfToday()
+        val usageMap = queryForegroundUsage(startTime = startOfToday)
         val trackedLimits = appLimitDao.getAllAppLimitsSync()
 
         for (limit in trackedLimits) {
             val actualUsageMs = usageMap[limit.packageName.lowercase()] ?: 0L
-            if (actualUsageMs != limit.currentDayUsageMs) {
+            val isNewDay = limit.lastResetTimestamp < startOfToday
+
+            if (isNewDay) {
+                // Opportunistic 12:00 AM reset catchup
+                appLimitDao.updateUsageLaunchesAndReset(
+                    packageName = limit.packageName,
+                    usageMs = actualUsageMs,
+                    launches = 0,
+                    resetTimestamp = System.currentTimeMillis()
+                )
+            } else if (actualUsageMs != limit.currentDayUsageMs) {
                 appLimitDao.updateUsageAndLaunches(
                     packageName = limit.packageName,
                     usageMs = actualUsageMs,
@@ -159,12 +188,24 @@ class UsageStatsTracker(
      */
     suspend fun recordAppLaunch(packageName: String, appLimitDao: AppLimitDao) {
         val existing = appLimitDao.getAppLimitSync(packageName) ?: return
-        val updatedLaunches = existing.currentDayLaunches + 1
-        appLimitDao.updateUsageAndLaunches(
-            packageName = existing.packageName,
-            usageMs = existing.currentDayUsageMs,
-            launches = updatedLaunches
-        )
+        val startOfToday = getStartOfToday()
+        val isNewDay = existing.lastResetTimestamp < startOfToday
+        val updatedLaunches = if (isNewDay) 1 else existing.currentDayLaunches + 1
+
+        if (isNewDay) {
+            appLimitDao.updateUsageLaunchesAndReset(
+                packageName = existing.packageName,
+                usageMs = queryPackageUsageToday(packageName),
+                launches = updatedLaunches,
+                resetTimestamp = System.currentTimeMillis()
+            )
+        } else {
+            appLimitDao.updateUsageAndLaunches(
+                packageName = existing.packageName,
+                usageMs = existing.currentDayUsageMs,
+                launches = updatedLaunches
+            )
+        }
     }
 
     companion object {

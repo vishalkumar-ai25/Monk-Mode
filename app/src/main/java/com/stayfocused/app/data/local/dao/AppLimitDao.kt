@@ -36,6 +36,9 @@ interface AppLimitDao {
     @Query("UPDATE app_limits SET currentDayUsageMs = :usageMs, currentDayLaunches = :launches WHERE packageName = :packageName")
     suspend fun updateUsageAndLaunches(packageName: String, usageMs: Long, launches: Int)
 
+    @Query("UPDATE app_limits SET currentDayUsageMs = :usageMs, currentDayLaunches = :launches, lastResetTimestamp = :resetTimestamp WHERE packageName = :packageName")
+    suspend fun updateUsageLaunchesAndReset(packageName: String, usageMs: Long, launches: Int, resetTimestamp: Long)
+
     @Query("""
         SELECT COALESCE(SUM(
             CASE 

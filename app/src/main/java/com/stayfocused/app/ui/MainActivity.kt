@@ -255,7 +255,11 @@ fun MainNavigationHost(
         ) {
             when (selectedTab) {
                 NavTab.DASHBOARD -> DashboardScreen(database = database)
-                NavTab.APP_LIMITS -> AppLimitsScreen(database = database)
+                NavTab.APP_LIMITS -> AppLimitsScreen(
+                    database = database,
+                    isVpnRunning = isVpnRunning,
+                    onToggleVpn = onToggleVpn
+                )
                 NavTab.WEB_BLOCKER -> WebBlockerScreen(
                     database = database,
                     isVpnRunning = isVpnRunning,

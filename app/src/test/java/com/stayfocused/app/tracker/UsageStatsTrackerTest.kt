@@ -151,6 +151,37 @@ class UsageStatsTrackerTest {
     }
 
     @Test
+    fun testSyncUsageWithDatabaseResetsLaunchesOnNewDay() = runBlocking {
+        val yesterdayMs = System.currentTimeMillis() - 25 * 3600 * 1000L
+        appLimitDao.upsertAppLimit(
+            AppLimitEntity(
+                packageName = "com.google.android.youtube",
+                appName = "YouTube",
+                dailyTimeLimitMinutes = 30,
+                currentDayUsageMs = 45 * 60 * 1000L,
+                currentDayLaunches = 10,
+                lastResetTimestamp = yesterdayMs
+            )
+        )
+
+        val mockUsage = mapOf(
+            "com.google.android.youtube" to 5 * 60 * 1000L // 5m today
+        )
+        val tracker = UsageStatsTracker(
+            context = context,
+            appOpsChecker = { true },
+            usageStatsProvider = { _, _ -> mockUsage }
+        )
+
+        tracker.syncUsageWithDatabase(appLimitDao)
+
+        val youtube = appLimitDao.getAppLimitSync("com.google.android.youtube")
+        assertEquals(5 * 60 * 1000L, youtube?.currentDayUsageMs)
+        assertEquals(0, youtube?.currentDayLaunches) // reset to 0 for new day
+        assertTrue((youtube?.lastResetTimestamp ?: 0L) >= tracker.getStartOfToday())
+    }
+
+    @Test
     fun testRecordAppLaunchIncrementsCount() = runBlocking {
         appLimitDao.upsertAppLimit(
             AppLimitEntity(

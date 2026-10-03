@@ -1,7 +1,5 @@
 package com.stayfocused.app.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.os.SystemClock
 import android.widget.Toast
@@ -57,7 +55,6 @@ import com.stayfocused.app.strict.FailsafeManager
 import com.stayfocused.app.strict.StrictScheduleScheduler
 import com.stayfocused.app.ui.TimeFormatter
 import com.stayfocused.app.ui.components.ArmStrictSessionDialog
-import com.stayfocused.app.ui.components.FailsafeLogCard
 import com.stayfocused.app.ui.components.FocusSchedulesCard
 import com.stayfocused.app.ui.components.RandomTextChallengeDialog
 import com.stayfocused.app.ui.components.ScheduleConfigDialog
@@ -87,8 +84,6 @@ fun StrictLockScreen(
     val activeStrictSession by database.strictSessionDao().getActiveStrictSession().collectAsState(initial = null)
     val schedules by database.strictScheduleDao().getAllSchedules().collectAsState(initial = emptyList())
     val profiles by database.focusProfileDao().getAllProfiles().collectAsState(initial = emptyList())
-    val failsafeLogs by database.failsafeLogDao().getAllLogs().collectAsState(initial = emptyList())
-
     val currentSession = activeStrictSession
     val isStrictActive = currentSession != null && currentSession.isActive
 
@@ -97,8 +92,6 @@ fun StrictLockScreen(
     var showScheduleConfigDialog by remember { mutableStateOf(false) }
     var editingSchedule by remember { mutableStateOf<StrictScheduleEntity?>(null) }
     var activeChallengeQuote by remember { mutableStateOf<ChallengeQuote?>(null) }
-    var generatedRecoveryCode by remember { mutableStateOf<String?>(null) }
-    var enteredRecoveryCode by remember { mutableStateOf("") }
 
     val randomTextEngine = remember { RandomTextChallengeEngine() }
 
@@ -455,88 +448,18 @@ fun StrictLockScreen(
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MonkLine)
 
-                    // Layer 2: Emergency Recovery Code
+                    // Layer 2: Boot Grace Period
                     FailsafeLayerRow(
                         numeral = "2",
-                        title = "Emergency Recovery Code",
-                        description = "Single-use 16-character cryptographic recovery code. Generates once; store in a password manager or physical vault."
-                    ) {
-                        Button(
-                            onClick = {
-                                scope.launch(Dispatchers.IO) {
-                                    val code = failsafeManager.generateAndStoreRecoveryCode()
-                                    withContext(Dispatchers.Main) {
-                                        generatedRecoveryCode = code
-                                    }
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MonkCardAlt, contentColor = MonkText)
-                        ) {
-                            Text("Generate New Code")
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = enteredRecoveryCode,
-                                onValueChange = { enteredRecoveryCode = it },
-                                label = { Text("Enter 16-character code", color = MonkMuted) },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            Button(
-                                onClick = {
-                                    scope.launch(Dispatchers.IO) {
-                                        val success = failsafeManager.verifyAndConsumeRecoveryCode(enteredRecoveryCode.trim())
-                                        if (success) {
-                                            val now = System.currentTimeMillis()
-                                            val nowZdt = java.time.ZonedDateTime.now(java.time.ZoneId.systemDefault())
-                                            val engine = com.stayfocused.app.domain.StrictScheduleEngine()
-                                            val enabledSchedules = database.strictScheduleDao().getEnabledSchedulesSync()
-                                            val activeSchedules = engine.getActiveSchedules(enabledSchedules, nowZdt, now)
-                                            activeSchedules.forEach { schedule ->
-                                                val windowEnd = engine.calculateCurrentWindowEndTime(schedule, nowZdt)
-                                                database.strictScheduleDao().setDismissedUntil(schedule.id, windowEnd)
-                                            }
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            if (success) {
-                                                enteredRecoveryCode = ""
-                                                Toast.makeText(context, "Recovery code accepted! Strict locks released.", Toast.LENGTH_LONG).show()
-                                            } else {
-                                                Toast.makeText(context, "Invalid or already used recovery code.", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = MonkSage, contentColor = MonkInk)
-                            ) {
-                                Text("Redeem")
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MonkLine)
-
-                    // Layer 3: Boot Grace Period
-                    FailsafeLayerRow(
-                        numeral = "3",
                         title = "Scoped Boot Grace Period",
                         description = "For 3–5 minutes after device restart, Settings-blocking and Device Admin lockout are suspended ONLY. All app and website blocking rules remain armed during reboot."
                     )
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MonkLine)
 
-                    // Layer 4: ADB Escape Hatch
+                    // Layer 3: ADB Escape Hatch
                     FailsafeLayerRow(
-                        numeral = "4",
+                        numeral = "3",
                         title = "Developer ADB Escape Hatch",
                         description = "Last-resort developer path via ADB commands. Documented in README."
                     ) {
@@ -557,11 +480,6 @@ fun StrictLockScreen(
                     }
                 }
             }
-        }
-
-        // Failsafe Integrity Audit Log Card
-        item {
-            FailsafeLogCard(logs = failsafeLogs)
         }
 
         item {
@@ -699,70 +617,6 @@ fun StrictLockScreen(
                         showScheduleConfigDialog = false
                         Toast.makeText(context, "Focus schedule saved", Toast.LENGTH_SHORT).show()
                     }
-                }
-            }
-        )
-    }
-
-    // Recovery Code Dialog — styled with Monk tokens
-    if (generatedRecoveryCode != null) {
-        AlertDialog(
-            onDismissRequest = { generatedRecoveryCode = null },
-            containerColor = MonkCard,
-            title = {
-                Text(
-                    "Emergency Recovery Code",
-                    color = MonkText,
-                    fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        "Save this 16-character code in a secure physical location. It will never be displayed again:",
-                        color = MonkMuted
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MonkCardAlt, RoundedCornerShape(10.dp))
-                            .border(1.dp, MonkEmber.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val formatted = generatedRecoveryCode!!.chunked(4).joinToString("-")
-                        Text(
-                            text = formatted,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 22.sp,
-                            color = MonkEmber
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val clip = ClipData.newPlainText("Recovery Code", generatedRecoveryCode)
-                        clipboard.setPrimaryClip(clip)
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                        generatedRecoveryCode = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MonkEmber, contentColor = MonkInk)
-                ) {
-                    Text("Copy & Close")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { generatedRecoveryCode = null },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MonkMuted)
-                ) {
-                    Text("Close")
                 }
             }
         )
