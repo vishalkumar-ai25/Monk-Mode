@@ -14,6 +14,6 @@
 - [x] Task 4: Senior Code Review
   - Dispatch to `code-reviewer` subagent.
   - Resolve all findings and receive explicit final approval.
-- [ ] Task 5: Device Installation & Visual Verification
+- [x] Task 5: Device Installation & Visual Verification
   - Install updated APK on connected device `V49TW4RWQOZ5IFBA`.
   - Verify app name "Monk Mode" and new icon on home screen via `screencap`.
