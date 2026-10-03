@@ -63,23 +63,21 @@ class UsageStatsTracker(
 
         if (eventStreamProvider != null) {
             val events = eventStreamProvider.invoke(startTime, endTime)
-            val result = processEventStream(events, startTime, endTime)
-            if (result.isNotEmpty()) {
-                return result
-            }
+            return processEventStream(events, startTime, endTime)
         }
 
         val manager = usageStatsManager ?: return emptyMap()
 
-        // Tier 1: Canonical UsageEvents reconstruction (exact millisecond precision, respects midnight)
+        // Tier 1: Canonical UsageEvents reconstruction (exact millisecond precision, respects midnight).
+        // If Tier 1 executes successfully, return its result directly (even if 0 ms at midnight).
         try {
             val eventUsage = queryUsageFromEvents(manager, startTime, endTime)
-            if (eventUsage.isNotEmpty()) {
+            if (eventUsage != null) {
                 return eventUsage
             }
         } catch (_: Exception) {}
 
-        // Tier 2: Pre-aggregated system totals (may spill over on OEMs like ColorOS/Realme/OnePlus)
+        // Tier 2: Pre-aggregated system totals (fallback only if Tier 1 queryEvents threw or failed)
         try {
             val aggregated = manager.queryAndAggregateUsageStats(startTime, endTime)
             val result = aggregated.mapNotNull { (pkg, stats) ->
@@ -94,66 +92,56 @@ class UsageStatsTracker(
 
         // Tier 3: Fallback using INTERVAL_DAILY
         try {
-            val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime) ?: emptyList()
-            val result = statsList.filter { it.totalTimeInForeground > 0L }
-                .groupBy { it.packageName.lowercase() }
-                .mapValues { (_, list) -> list.maxOf { it.totalTimeInForeground } }
-            if (result.isNotEmpty()) {
-                return result
+            val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+            if (!statsList.isNullOrEmpty()) {
+                val result = aggregateUsageStats(statsList)
+                if (result.isNotEmpty()) return result
             }
         } catch (_: Exception) {}
 
         // Tier 4: Fallback using finest available interval (INTERVAL_BEST)
         return try {
-            val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_BEST, startTime, endTime) ?: emptyList()
-            statsList.filter { it.totalTimeInForeground > 0L }
-                .groupBy { it.packageName.lowercase() }
-                .mapValues { (_, list) -> list.maxOf { it.totalTimeInForeground } }
+            val statsList = manager.queryUsageStats(UsageStatsManager.INTERVAL_BEST, startTime, endTime)
+            if (!statsList.isNullOrEmpty()) aggregateUsageStats(statsList) else emptyMap()
         } catch (_: Exception) {
             emptyMap()
         }
     }
 
     /**
-     * Reconstructs exact foreground app usage from Android's raw UsageEvents stream.
-     * Looks back up to 12 hours before [windowStart] to capture any session that may have
-     * crossed the midnight boundary, then clamps accumulated usage strictly within [windowStart, windowEnd].
+     * Reconstructs exact foreground app usage from Android's raw UsageEvents stream in a single pass
+     * with zero object allocations in the hot event iteration loop.
+     * Returns null if queryEvents failed or returned null (signaling fallback to Tier 2).
      */
     fun queryUsageFromEvents(
         manager: UsageStatsManager,
         windowStart: Long,
         windowEnd: Long
-    ): Map<String, Long> {
+    ): Map<String, Long>? {
         val searchStart = maxOf(0L, windowStart - 12 * 3600 * 1000L)
         val usageEvents = try {
             manager.queryEvents(searchStart, windowEnd)
         } catch (e: Exception) {
-            return emptyMap()
-        } ?: return emptyMap()
+            return null
+        } ?: return null
 
-        val eventList = mutableListOf<UsageEventRecord>()
+        val processor = UsageEventProcessor(windowStart, windowEnd)
         val outEvent = UsageEvents.Event()
+
         while (usageEvents.hasNextEvent()) {
             usageEvents.getNextEvent(outEvent)
-            eventList.add(
-                UsageEventRecord(
-                    packageName = outEvent.packageName,
-                    className = outEvent.className,
-                    eventType = outEvent.eventType,
-                    timestamp = outEvent.timeStamp
-                )
+            processor.processEvent(
+                packageName = outEvent.packageName,
+                eventType = outEvent.eventType,
+                timestamp = outEvent.timeStamp
             )
         }
 
-        if (eventList.isEmpty()) {
-            return emptyMap()
-        }
-
-        return processEventStream(eventList.asSequence(), windowStart, windowEnd)
+        return processor.finish()
     }
 
     /**
-     * Processes a chronological sequence of usage events and aggregates exact foreground time
+     * Processes a sequence of UsageEventRecords and aggregates exact foreground time
      * for each package strictly clamped to [windowStart, windowEnd].
      */
     fun processEventStream(
@@ -161,84 +149,21 @@ class UsageStatsTracker(
         windowStart: Long,
         windowEnd: Long
     ): Map<String, Long> {
-        if (windowEnd <= windowStart) return emptyMap()
-
-        val usageMap = mutableMapOf<String, Long>()
-        var currentActivePkg: String? = null
-        var currentClassName: String? = null
-        var sessionStart: Long = 0L
-
-        fun creditCurrentSession(sessionEnd: Long) {
-            val pkg = currentActivePkg ?: return
-            if (sessionStart <= 0L) return
-
-            if (sessionEnd > sessionStart) {
-                val cappedEnd = minOf(sessionEnd, sessionStart + MAX_SINGLE_SESSION_MS)
-                val effectiveStart = maxOf(sessionStart, windowStart)
-                val effectiveEnd = minOf(cappedEnd, windowEnd)
-
-                if (effectiveEnd > effectiveStart) {
-                    val duration = effectiveEnd - effectiveStart
-                    val lowerPkg = pkg.lowercase()
-                    usageMap[lowerPkg] = (usageMap[lowerPkg] ?: 0L) + duration
-                }
-            }
-            currentActivePkg = null
-            currentClassName = null
-            sessionStart = 0L
-        }
-
+        val processor = UsageEventProcessor(windowStart, windowEnd)
         for (event in events) {
-            val eventPkg = event.packageName
-            val eventCls = event.className
-            val eventTime = event.timestamp
-
-            when (event.eventType) {
-                EVENT_ACTIVITY_RESUMED -> {
-                    if (currentActivePkg != null) {
-                        creditCurrentSession(eventTime)
-                    }
-                    if (!eventPkg.isNullOrBlank()) {
-                        currentActivePkg = eventPkg
-                        currentClassName = eventCls
-                        sessionStart = eventTime
-                    }
-                }
-
-                EVENT_ACTIVITY_PAUSED -> {
-                    if (currentActivePkg != null) {
-                        val isSameClass = eventCls.isNullOrBlank() ||
-                                currentClassName.isNullOrBlank() ||
-                                eventCls.equals(currentClassName, ignoreCase = true)
-
-                        if (isSameClass && (eventPkg.isNullOrBlank() || eventPkg.equals(currentActivePkg, ignoreCase = true))) {
-                            creditCurrentSession(eventTime)
-                        }
-                    }
-                }
-
-                EVENT_SCREEN_NON_INTERACTIVE,
-                EVENT_KEYGUARD_SHOWN,
-                EVENT_DEVICE_SHUTDOWN -> {
-                    if (currentActivePkg != null) {
-                        creditCurrentSession(eventTime)
-                    }
-                }
-
-                EVENT_SCREEN_INTERACTIVE,
-                EVENT_DEVICE_STARTUP -> {
-                    if (currentActivePkg != null) {
-                        creditCurrentSession(eventTime)
-                    }
-                }
-            }
+            processor.processEvent(
+                packageName = event.packageName,
+                eventType = event.eventType,
+                timestamp = event.timestamp
+            )
         }
+        return processor.finish()
+    }
 
-        if (currentActivePkg != null && sessionStart > 0L) {
-            creditCurrentSession(windowEnd)
-        }
-
-        return usageMap.filterValues { it > 0L }
+    private fun aggregateUsageStats(statsList: List<android.app.usage.UsageStats>): Map<String, Long> {
+        return statsList.filter { it.totalTimeInForeground > 0L }
+            .groupBy { it.packageName.lowercase() }
+            .mapValues { (_, list) -> list.maxOf { it.totalTimeInForeground } }
     }
 
     /**
@@ -330,6 +255,7 @@ class UsageStatsTracker(
 
     /**
      * Increments the launch count for the given package if it is tracked in Room DB.
+     * Resets usage count to 0 ms on a new day to prevent jank, leaving full usage sync to background.
      */
     suspend fun recordAppLaunch(packageName: String, appLimitDao: AppLimitDao) {
         val existing = appLimitDao.getAppLimitSync(packageName) ?: return
@@ -340,7 +266,7 @@ class UsageStatsTracker(
         if (isNewDay) {
             appLimitDao.updateUsageLaunchesAndReset(
                 packageName = existing.packageName,
-                usageMs = queryPackageUsageToday(packageName),
+                usageMs = 0L,
                 launches = updatedLaunches,
                 resetTimestamp = System.currentTimeMillis()
             )
@@ -356,14 +282,9 @@ class UsageStatsTracker(
     companion object {
         const val EVENT_ACTIVITY_RESUMED = 1
         const val EVENT_ACTIVITY_PAUSED = 2
-        const val EVENT_SCREEN_INTERACTIVE = 15
         const val EVENT_SCREEN_NON_INTERACTIVE = 16
         const val EVENT_KEYGUARD_SHOWN = 17
-        const val EVENT_KEYGUARD_HIDDEN = 18
         const val EVENT_DEVICE_SHUTDOWN = 26
-        const val EVENT_DEVICE_STARTUP = 27
-
-        private const val MAX_SINGLE_SESSION_MS = 12 * 3600 * 1000L // 12 hours safety clamp
 
         fun checkUsageStatsPermission(context: Context): Boolean {
             val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
@@ -383,6 +304,96 @@ class UsageStatsTracker(
             }
             return mode == AppOpsManager.MODE_ALLOWED
         }
+    }
+}
+
+/**
+ * Zero-allocation event processor state machine.
+ */
+class UsageEventProcessor(
+    private val windowStart: Long,
+    private val windowEnd: Long
+) {
+    companion object {
+        private const val MAX_SINGLE_SESSION_MS = 12 * 3600 * 1000L // 12 hours safety clamp
+    }
+
+    private val usageMap = mutableMapOf<String, Long>()
+    private var currentActivePkg: String? = null
+    private var sessionStart: Long = 0L
+    private var activeActivityCount: Int = 0
+
+    fun processEvent(
+        packageName: String?,
+        eventType: Int,
+        timestamp: Long
+    ) {
+        if (windowEnd <= windowStart) return
+
+        when (eventType) {
+            UsageStatsTracker.EVENT_ACTIVITY_RESUMED -> {
+                val newPkg = packageName?.takeIf { it.isNotBlank() } ?: return
+
+                if (currentActivePkg != null) {
+                    if (newPkg.equals(currentActivePkg, ignoreCase = true)) {
+                        // Intra-package activity switch (Feed -> Video): increment count and keep session continuous
+                        activeActivityCount++
+                        return
+                    }
+                    // Different package came to foreground: close previous session
+                    creditCurrentSession(timestamp)
+                }
+
+                currentActivePkg = newPkg
+                sessionStart = timestamp
+                activeActivityCount = 1
+            }
+
+            UsageStatsTracker.EVENT_ACTIVITY_PAUSED -> {
+                val pausedPkg = packageName
+                if (currentActivePkg != null && (pausedPkg == null || pausedPkg.equals(currentActivePkg, ignoreCase = true))) {
+                    activeActivityCount--
+                    if (activeActivityCount <= 0) {
+                        creditCurrentSession(timestamp)
+                    }
+                }
+            }
+
+            UsageStatsTracker.EVENT_SCREEN_NON_INTERACTIVE,
+            UsageStatsTracker.EVENT_KEYGUARD_SHOWN,
+            UsageStatsTracker.EVENT_DEVICE_SHUTDOWN -> {
+                if (currentActivePkg != null) {
+                    creditCurrentSession(timestamp)
+                }
+            }
+        }
+    }
+
+    fun finish(): Map<String, Long> {
+        if (currentActivePkg != null && sessionStart > 0L) {
+            creditCurrentSession(windowEnd)
+        }
+        return usageMap.filterValues { it > 0L }
+    }
+
+    private fun creditCurrentSession(sessionEnd: Long) {
+        val pkg = currentActivePkg ?: return
+        if (sessionStart <= 0L) return
+
+        if (sessionEnd > sessionStart) {
+            val cappedEnd = minOf(sessionEnd, sessionStart + MAX_SINGLE_SESSION_MS)
+            val effectiveStart = maxOf(sessionStart, windowStart)
+            val effectiveEnd = minOf(cappedEnd, windowEnd)
+
+            if (effectiveEnd > effectiveStart) {
+                val duration = effectiveEnd - effectiveStart
+                val lowerPkg = pkg.lowercase()
+                usageMap[lowerPkg] = (usageMap[lowerPkg] ?: 0L) + duration
+            }
+        }
+        currentActivePkg = null
+        sessionStart = 0L
+        activeActivityCount = 0
     }
 }
 

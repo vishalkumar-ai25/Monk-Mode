@@ -404,4 +404,39 @@ class UsageStatsTrackerTest {
         assertEquals(500000L, tracker.queryPackageUsageToday("com.google.android.youtube"))
         assertEquals(0L, tracker.queryPackageUsageToday("com.unknown.app"))
     }
+
+    @Test
+    fun testUsageEventProcessorZeroAllocationDirectStream() {
+        val midnight = 1727913600000L
+        val windowEnd = midnight + 3600 * 1000L
+        val processor = UsageEventProcessor(midnight, windowEnd)
+
+        // 00:10 YouTube starts
+        processor.processEvent("com.google.android.youtube", UsageStatsTracker.EVENT_ACTIVITY_RESUMED, midnight + 10 * 60 * 1000L)
+        // 00:15 User switches to internal player (same package)
+        processor.processEvent("com.google.android.youtube", UsageStatsTracker.EVENT_ACTIVITY_RESUMED, midnight + 15 * 60 * 1000L)
+        // 00:15:00.050 Feed activity pauses late
+        processor.processEvent("com.google.android.youtube", UsageStatsTracker.EVENT_ACTIVITY_PAUSED, midnight + 15 * 60 * 1000L + 50L)
+        // 00:25 Screen turns off
+        processor.processEvent(null, UsageStatsTracker.EVENT_SCREEN_NON_INTERACTIVE, midnight + 25 * 60 * 1000L)
+
+        val result = processor.finish()
+        // 00:10 to 00:25 = 15 minutes = 900,000 ms
+        assertEquals(15 * 60 * 1000L, result["com.google.android.youtube"])
+    }
+
+    @Test
+    fun testEventStreamReturnsEmptyMapWithoutFallbackAtMidnight() {
+        val midnight = 1727913600000L
+        val windowEnd = midnight + 60 * 1000L // 00:01 AM
+
+        val tracker = UsageStatsTracker(
+            context = context,
+            appOpsChecker = { true },
+            eventStreamProvider = { _, _ -> emptySequence() }
+        )
+
+        val result = tracker.queryForegroundUsage(startTime = midnight, endTime = windowEnd)
+        assertTrue("Legitimate zero usage at midnight must return empty map", result.isEmpty())
+    }
 }
