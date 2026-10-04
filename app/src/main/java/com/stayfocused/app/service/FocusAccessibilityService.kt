@@ -4,11 +4,13 @@ import android.accessibilityservice.AccessibilityService
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.inputmethod.InputMethodManager
 import com.stayfocused.app.BuildConfig
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.registry.PackageRegistry
 import com.stayfocused.app.domain.InterceptionDecisionEngine
 import com.stayfocused.app.domain.SettingsTamperInspector
+import com.stayfocused.app.domain.TransientWindowFilter
 import com.stayfocused.app.domain.model.AppLimitSnapshot
 import com.stayfocused.app.domain.model.BlockReason
 import com.stayfocused.app.domain.model.FocusProfileRule
@@ -45,6 +47,14 @@ class FocusAccessibilityService : AccessibilityService() {
     var usageStatsTracker: UsageStatsTracker? = null
     var database: StayFocusedDatabase? = null
 
+    /**
+     * Classifies transient system overlays (notification shade, IME, permission dialogs).
+     * Initialized in [onCreate] with the live IME lambda; replaced in unit tests for
+     * deterministic, framework-free behaviour.
+     */
+    var transientFilter: TransientWindowFilter? = null
+
+    /** The last *real* (non-transient) foreground package name observed. */
     private var lastForegroundPackage: String? = null
     private var foregroundMonitorJob: kotlinx.coroutines.Job? = null
 
@@ -86,6 +96,17 @@ class FocusAccessibilityService : AccessibilityService() {
                 Log.w(TAG, "Database not available in this context", e)
             }
         }
+        // Initialize transientFilter here so getSystemService is called after super.onCreate().
+        // Tests override this field after create() with a fixed-set lambda.
+        if (transientFilter == null) {
+            transientFilter = TransientWindowFilter(
+                imePackagesProvider = {
+                    val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+                    imm?.enabledInputMethodList?.map { it.packageName }?.toSet() ?: emptySet()
+                },
+                selfPackage = BuildConfig.APPLICATION_ID
+            )
+        }
         observeDatabaseState()
     }
 
@@ -125,6 +146,17 @@ class FocusAccessibilityService : AccessibilityService() {
             foregroundMonitorJob?.cancel()
             return
         }
+
+        // ── Transient-window guard ────────────────────────────────────────────
+        // Notification shade, volume panel, IME, permission dialogs and our own
+        // overlay windows must NOT hide a live block overlay, update the last real
+        // foreground package, or count as a new app launch.
+        if (transientFilter?.isTransient(target, className) == true) {
+            Log.d(TAG, "Ignoring transient window event from $target ($className)")
+            return
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
 
         val isStrictActive = isStrictModeActive && (cachedStrictEndTimeMs == 0L || System.currentTimeMillis() < cachedStrictEndTimeMs)
         val isSettingsOrInstaller = packageRegistry?.isSettingsOrInstaller(target) ?: false
@@ -187,7 +219,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
         val decision = engine.evaluate(context)
 
-        // Increment launch counts on package transition
+        // Increment launch counts on *real* package transition (transients have already returned above)
         if (target != lastForegroundPackage) {
             lastForegroundPackage = target
             val db = database
@@ -219,7 +251,7 @@ class FocusAccessibilityService : AccessibilityService() {
                         }
                     )
                 } else {
-                    // Fallback if overlay permission is not yet granted
+                    // Fallback when SYSTEM_ALERT_WINDOW is not granted
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
             }
