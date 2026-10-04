@@ -17,6 +17,74 @@ class StayFocusedDeviceAdminReceiver : DeviceAdminReceiver() {
 
     companion object {
         private const val TAG = "StayFocusedDeviceAdmin"
+        const val PREFS_NAME = "stayfocused_protection_prefs"
+        const val KEY_STRICT_ACTIVE = "key_strict_active_cached"
+        const val KEY_STRICT_END_TIME = "key_strict_end_time_cached"
+
+        @Volatile
+        var isStrictActiveCached: Boolean = false
+
+        @Volatile
+        var cachedStrictEndTimeMs: Long = 0L
+
+        fun setStrictActiveCached(isActive: Boolean, endTimeMs: Long = 0L, context: Context? = null) {
+            isStrictActiveCached = isActive
+            cachedStrictEndTimeMs = endTimeMs
+            if (context != null) {
+                try {
+                    val appContext = context.applicationContext ?: context
+                    appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(KEY_STRICT_ACTIVE, isActive)
+                        .putLong(KEY_STRICT_END_TIME, endTimeMs)
+                        .apply()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to persist strict active cache", e)
+                }
+            }
+        }
+
+        fun isStrictActive(context: Context): Boolean {
+            val now = System.currentTimeMillis()
+            if (isStrictActiveCached) {
+                if (cachedStrictEndTimeMs > 0L && now >= cachedStrictEndTimeMs) {
+                    setStrictActiveCached(false, 0L, context)
+                    return false
+                }
+                return true
+            }
+            return try {
+                val appContext = context.applicationContext ?: context
+                val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val isActive = prefs.getBoolean(KEY_STRICT_ACTIVE, false)
+                if (!isActive) return false
+                val endTime = prefs.getLong(KEY_STRICT_END_TIME, 0L)
+                if (endTime > 0L && now >= endTime) {
+                    setStrictActiveCached(false, 0L, context)
+                    false
+                } else {
+                    true
+                }
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        @androidx.annotation.VisibleForTesting
+        fun resetStrictActiveForTesting(context: Context? = null) {
+            isStrictActiveCached = false
+            cachedStrictEndTimeMs = 0L
+            context?.let {
+                try {
+                    val appContext = it.applicationContext ?: it
+                    appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit()
+                        .remove(KEY_STRICT_ACTIVE)
+                        .remove(KEY_STRICT_END_TIME)
+                        .commit()
+                } catch (_: Exception) {}
+            }
+        }
 
         fun getComponentName(context: Context): ComponentName {
             return ComponentName(context.applicationContext, StayFocusedDeviceAdminReceiver::class.java)
@@ -46,16 +114,8 @@ class StayFocusedDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence? {
         Log.w(TAG, "Device Admin disable requested.")
-        val isStrictActive = try {
-            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                val db = com.stayfocused.app.data.local.StayFocusedDatabase.getInstance(context)
-                val session = db.strictSessionDao().getActiveStrictSessionSync()
-                session != null && session.isActive && System.currentTimeMillis() < session.targetEndTime
-            }
-        } catch (e: Exception) {
-            false
-        }
-        return getDisableWarning(antiTamperEnabled = isStrictActive)
+        val isStrict = isStrictActive(context)
+        return getDisableWarning(antiTamperEnabled = isStrict)
     }
 
     override fun onDisabled(context: Context, intent: Intent) {

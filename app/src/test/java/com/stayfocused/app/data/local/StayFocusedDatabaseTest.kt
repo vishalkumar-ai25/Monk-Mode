@@ -18,12 +18,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -42,6 +48,7 @@ class StayFocusedDatabaseTest {
     @After
     fun closeDb() {
         db.close()
+        StayFocusedDatabase.resetInstanceForTesting()
     }
 
     @Test
@@ -271,5 +278,54 @@ class StayFocusedDatabaseTest {
         dao.deactivateBreak()
         val deactivated = dao.getActiveBreakSync()
         assertNull(deactivated)
+    }
+
+    @Test
+    fun testGetInstanceDoubleCheckedLockingHammers16Threads() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        StayFocusedDatabase.resetInstanceForTesting()
+
+        val threadCount = 16
+        val startGate = CountDownLatch(1)
+        val endGate = CountDownLatch(threadCount)
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val instances = ConcurrentLinkedQueue<StayFocusedDatabase>()
+        val exceptions = ConcurrentLinkedQueue<Throwable>()
+
+        try {
+            for (i in 0 until threadCount) {
+                executor.execute {
+                    try {
+                        startGate.await()
+                        val instance = StayFocusedDatabase.getInstance(context)
+                        instances.add(instance)
+                    } catch (t: Throwable) {
+                        exceptions.add(t)
+                    } finally {
+                        endGate.countDown()
+                    }
+                }
+            }
+
+            // Hammer getInstance concurrently from 16 threads
+            startGate.countDown()
+            val finished = endGate.await(10, TimeUnit.SECONDS)
+
+            assertTrue("All 16 threads must complete within timeout", finished)
+            assertTrue(
+                "No exceptions should be thrown during concurrent getInstance: ${exceptions.map { it.message }}",
+                exceptions.isEmpty()
+            )
+            assertEquals("All 16 threads must return an instance", threadCount, instances.size)
+
+            val firstInstance = instances.peek()
+            assertNotNull("Instance should not be null", firstInstance)
+            for (instance in instances) {
+                assertSame("All 16 threads must receive the exact same singleton instance", firstInstance, instance)
+            }
+        } finally {
+            executor.shutdown()
+            StayFocusedDatabase.resetInstanceForTesting()
+        }
     }
 }

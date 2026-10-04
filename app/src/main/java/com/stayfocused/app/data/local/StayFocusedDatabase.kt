@@ -149,16 +149,24 @@ abstract class StayFocusedDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): StayFocusedDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
+                INSTANCE ?: Room.databaseBuilder(
+                    context.applicationContext ?: context,
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
-                INSTANCE = instance
-                instance
+                    .also { INSTANCE = it }
+            }
+        }
+
+        @androidx.annotation.VisibleForTesting
+        fun resetInstanceForTesting() {
+            synchronized(this) {
+                INSTANCE?.close()
+                INSTANCE = null
             }
         }
     }
 }
+
