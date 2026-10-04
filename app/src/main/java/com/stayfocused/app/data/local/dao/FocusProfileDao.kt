@@ -58,6 +58,14 @@ interface FocusProfileDao {
     """)
     suspend fun getActiveBlockedDomains(): List<String>
 
+    @Query("""
+        SELECT DISTINCT d.domain 
+        FROM profile_blocked_domains d
+        INNER JOIN focus_profiles f ON d.profileId = f.id
+        WHERE f.isActive = 1
+    """)
+    fun getActiveBlockedDomainsFlow(): Flow<List<String>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProfile(entity: FocusProfileEntity): Long
 
@@ -65,7 +73,17 @@ interface FocusProfileDao {
     suspend fun insertBlockedPackages(packages: List<ProfileBlockedPackageEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertBlockedDomains(domains: List<ProfileBlockedDomainEntity>)
+    suspend fun insertBlockedDomainsInternal(domains: List<ProfileBlockedDomainEntity>)
+
+    suspend fun insertBlockedDomains(domains: List<ProfileBlockedDomainEntity>) {
+        val normalized = domains.mapNotNull { entity ->
+            val clean = BlockedDomainDao.normalizeDomain(entity.domain) ?: return@mapNotNull null
+            entity.copy(domain = clean)
+        }
+        if (normalized.isNotEmpty()) {
+            insertBlockedDomainsInternal(normalized)
+        }
+    }
 
     @Query("DELETE FROM profile_blocked_packages WHERE profileId = :profileId")
     suspend fun clearBlockedPackages(profileId: Long)

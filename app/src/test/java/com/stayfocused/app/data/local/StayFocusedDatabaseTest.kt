@@ -3,6 +3,7 @@ package com.stayfocused.app.data.local
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.stayfocused.app.data.local.dao.BlockedDomainDao
 import com.stayfocused.app.data.local.entities.AppLimitEntity
 import com.stayfocused.app.data.local.entities.BlockedDomainEntity
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
@@ -90,17 +91,24 @@ class StayFocusedDatabaseTest {
     fun testBlockedDomainDao() = runBlocking {
         val dao = db.blockedDomainDao()
 
-        val domain = BlockedDomainEntity(domain = "reddit.com", isBlocked = true)
+        // Upsert with trailing dot and uppercase to test normalization
+        val domain = BlockedDomainEntity(domain = "REDDIT.COM.", isBlocked = true)
         dao.upsertBlockedDomain(domain)
 
         assertTrue(dao.isDomainBlocked("reddit.com"))
+        assertTrue(dao.isDomainBlocked("REDDIT.COM."))
         assertFalse(dao.isDomainBlocked("wikipedia.org"))
 
         val allBlocked = dao.getAllBlockedDomains().first()
         assertEquals(1, allBlocked.size)
         assertEquals("reddit.com", allBlocked[0].domain)
 
-        dao.deleteBlockedDomain("reddit.com")
+        // Invalid domains rejected
+        org.junit.Assert.assertNull(BlockedDomainDao.normalizeDomain("localhost"))
+        org.junit.Assert.assertNull(BlockedDomainDao.normalizeDomain("*.google.com"))
+        org.junit.Assert.assertNull(BlockedDomainDao.normalizeDomain(""))
+
+        dao.deleteBlockedDomain("reddit.com.")
         assertFalse(dao.isDomainBlocked("reddit.com"))
     }
 
@@ -116,7 +124,7 @@ class StayFocusedDatabaseTest {
         val profileId = dao.upsertProfile(profile)
         assertTrue(profileId > 0)
 
-        // Insert junction table relations
+        // Insert junction table relations (testing normalization of uppercase/trailing dots)
         dao.insertBlockedPackages(
             listOf(
                 ProfileBlockedPackageEntity(profileId, "com.twitter.android"),
@@ -125,7 +133,7 @@ class StayFocusedDatabaseTest {
         )
         dao.insertBlockedDomains(
             listOf(
-                ProfileBlockedDomainEntity(profileId, "twitter.com"),
+                ProfileBlockedDomainEntity(profileId, "TWITTER.COM."),
                 ProfileBlockedDomainEntity(profileId, "facebook.com")
             )
         )
@@ -140,6 +148,12 @@ class StayFocusedDatabaseTest {
         assertEquals(2, activeDomains.size)
         assertTrue(activeDomains.contains("twitter.com"))
         assertTrue(activeDomains.contains("facebook.com"))
+
+        // Reactive flow query
+        val activeDomainsFlow = dao.getActiveBlockedDomainsFlow().first()
+        assertEquals(2, activeDomainsFlow.size)
+        assertTrue(activeDomainsFlow.contains("twitter.com"))
+        assertTrue(activeDomainsFlow.contains("facebook.com"))
 
         // Full profile with rules relation query
         val profileWithRules = dao.getProfileWithRules(profileId).first()

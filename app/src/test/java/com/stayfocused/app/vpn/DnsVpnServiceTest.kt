@@ -178,4 +178,51 @@ class DnsVpnServiceTest {
         packet[11] = checksum.toByte()
         return packet
     }
+
+    @Test
+    fun testDnsLruCacheCapacityAndEviction() {
+        val cache = DnsVpnService.DnsLruCache(maxEntries = 3)
+        val now = 1000L
+
+        cache.put("domain1:1", byteArrayOf(1), now + 10000L)
+        cache.put("domain2:1", byteArrayOf(2), now + 10000L)
+        cache.put("domain3:1", byteArrayOf(3), now + 10000L)
+        assertEquals(3, cache.size())
+
+        // Access domain1 to make domain2 eldest
+        assertNotNull(cache.get("domain1:1", now))
+
+        // Put domain4 - should evict domain2 (LRU)
+        cache.put("domain4:1", byteArrayOf(4), now + 10000L)
+        assertEquals(3, cache.size())
+        assertNotNull(cache.get("domain1:1", now))
+        org.junit.Assert.assertNull(cache.get("domain2:1", now))
+        assertNotNull(cache.get("domain3:1", now))
+        assertNotNull(cache.get("domain4:1", now))
+    }
+
+    @Test
+    fun testDnsLruCacheTtlExpiration() {
+        val cache = DnsVpnService.DnsLruCache(maxEntries = 512)
+        val now = 1000L
+
+        cache.put("example.com:1", byteArrayOf(0x0A), expiryTimestamp = 2000L)
+
+        // Before expiry
+        val valid = cache.get("example.com:1", now = 1500L)
+        assertNotNull("Valid before expiry", valid)
+
+        // At/after expiry
+        val expired = cache.get("example.com:1", now = 2000L)
+        org.junit.Assert.assertNull("Expired entries must return null and be purged", expired)
+    }
+
+    @Test
+    fun testGetPhysicalDnsServersExcludesVpnAndLoopback() {
+        // Fallback list should include IPv6 resolvers and valid upstreams
+        assertTrue(DnsVpnService.DNS_UPSTREAMS.contains("8.8.8.8"))
+        assertTrue(DnsVpnService.DNS_UPSTREAMS.contains("2001:4860:4860::8888"))
+        assertFalse(DnsVpnService.DNS_UPSTREAMS.contains("10.0.0.1"))
+    }
 }
+

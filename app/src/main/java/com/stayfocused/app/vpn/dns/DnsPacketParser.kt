@@ -64,7 +64,7 @@ object DnsPacketParser {
         if (version != 4) return false
 
         val ihl = (packet[0].toInt() and 0x0F) * 4
-        if (packet.size < ihl + 4) return false
+        if (ihl < IPV4_HEADER_MIN_LEN || ihl > packet.size || packet.size < ihl + 4) return false
 
         val protocol = packet[9].toInt() and 0xFF
         if (protocol != 6) return false // TCP only
@@ -75,6 +75,14 @@ object DnsPacketParser {
 
     /**
      * Parses an IPv4/UDP packet and extracts network endpoints and DNS query payload.
+     * Enforces strict boundaries against malformed/truncated packets:
+     * - packet size >= 28 bytes (20 IP + 8 UDP)
+     * - IPv4 version == 4
+     * - ihl in 20..packet.size
+     * - totalLength in (ihl + 8)..packet.size
+     * - protocol == 17 (UDP)
+     * - udpLength in 8..(totalLength - ihl)
+     * - dnsLen >= 12 (DNS header)
      */
     fun parseIpPacket(packet: ByteArray): ParsedIpPacket? {
         if (packet.size < IPV4_HEADER_MIN_LEN + UDP_HEADER_LEN) return null
@@ -83,21 +91,26 @@ object DnsPacketParser {
         if (version != 4) return null
 
         val ihl = (packet[0].toInt() and 0x0F) * 4
-        if (packet.size < ihl + UDP_HEADER_LEN) return null
+        if (ihl < IPV4_HEADER_MIN_LEN || ihl > packet.size || packet.size < ihl + UDP_HEADER_LEN) return null
+
+        val totalLength = ((packet[2].toInt() and 0xFF) shl 8) or (packet[3].toInt() and 0xFF)
+        if (totalLength < ihl + UDP_HEADER_LEN || totalLength > packet.size) return null
 
         val protocol = packet[9].toInt() and 0xFF
         if (protocol != 17) return null // UDP only
+
+        val udpLength = ((packet[ihl + 4].toInt() and 0xFF) shl 8) or (packet[ihl + 5].toInt() and 0xFF)
+        if (udpLength < UDP_HEADER_LEN || udpLength > totalLength - ihl) return null
 
         val srcIp = "${packet[12].toUByte()}.${packet[13].toUByte()}.${packet[14].toUByte()}.${packet[15].toUByte()}"
         val dstIp = "${packet[16].toUByte()}.${packet[17].toUByte()}.${packet[18].toUByte()}.${packet[19].toUByte()}"
 
         val srcPort = ((packet[ihl].toInt() and 0xFF) shl 8) or (packet[ihl + 1].toInt() and 0xFF)
         val dstPort = ((packet[ihl + 2].toInt() and 0xFF) shl 8) or (packet[ihl + 3].toInt() and 0xFF)
-        val udpLength = ((packet[ihl + 4].toInt() and 0xFF) shl 8) or (packet[ihl + 5].toInt() and 0xFF)
 
         val dnsOffset = ihl + UDP_HEADER_LEN
-        val dnsLen = (udpLength - UDP_HEADER_LEN).coerceAtMost(packet.size - dnsOffset)
-        if (dnsLen < DNS_HEADER_LEN) return null
+        val dnsLen = udpLength - UDP_HEADER_LEN
+        if (dnsLen < DNS_HEADER_LEN || dnsOffset + dnsLen > packet.size) return null
 
         val dnsPayload = packet.copyOfRange(dnsOffset, dnsOffset + dnsLen)
         val query = parseDnsQuery(dnsPayload)
@@ -220,6 +233,88 @@ object DnsPacketParser {
         )
     }
 
+    /**
+     * Skips a wire-format domain name starting at [startOffset] in [buffer].
+     * Returns the exact number of bytes consumed in the wire stream, or null if malformed.
+     * Note: If compression pointer (0xC0) is encountered, it consumes 2 bytes in the wire stream
+     * regardless of how many labels the pointer references.
+     */
+    fun skipWireName(buffer: ByteArray, startOffset: Int): Int? {
+        var offset = startOffset
+        var bytesConsumed = 0
+        while (offset < buffer.size) {
+            val len = buffer[offset].toInt() and 0xFF
+            if (len == 0) {
+                // Zero-length root label terminating the domain name
+                bytesConsumed++
+                return bytesConsumed
+            }
+            if ((len and 0xC0) == 0xC0) {
+                // Compression pointer is 2 bytes on the wire
+                if (offset + 1 >= buffer.size) return null
+                bytesConsumed += 2
+                return bytesConsumed
+            }
+            if ((len and 0xC0) != 0) {
+                // RFC 1035 reserved label type
+                return null
+            }
+            if (offset + 1 + len > buffer.size) return null
+            bytesConsumed += 1 + len
+            offset += 1 + len
+        }
+        return null
+    }
+
+    /**
+     * Extracts the minimum TTL (in seconds) across all Resource Records in the Answer section
+     * of a DNS response payload. Terminates strictly after ANCOUNT records (never scanning
+     * Authority or Additional sections to avoid EDNS0 OPT pseudo-record pollution).
+     * Returns null if no answer records are present, if minTtl <= 0, or if payload is malformed.
+     */
+    fun extractMinTtl(dnsPayload: ByteArray): Long? {
+        if (dnsPayload.size < DNS_HEADER_LEN) return null
+
+        val qdCount = ((dnsPayload[4].toInt() and 0xFF) shl 8) or (dnsPayload[5].toInt() and 0xFF)
+        val anCount = ((dnsPayload[6].toInt() and 0xFF) shl 8) or (dnsPayload[7].toInt() and 0xFF)
+        if (anCount <= 0) return null
+
+        var offset = DNS_HEADER_LEN
+
+        // 1. Skip Question section (qdCount questions)
+        for (i in 0 until qdCount) {
+            val consumed = skipWireName(dnsPayload, offset) ?: return null
+            offset += consumed + 4 // QNAME + QTYPE (2) + QCLASS (2)
+            if (offset > dnsPayload.size) return null
+        }
+
+        // 2. Iterate strictly ANCOUNT Answer resource records
+        var minTtl: Long? = null
+        for (i in 0 until anCount) {
+            if (offset >= dnsPayload.size) break
+            val consumed = skipWireName(dnsPayload, offset) ?: return null
+            offset += consumed
+
+            // Must have at least 10 bytes: TYPE (2) + CLASS (2) + TTL (4) + RDLENGTH (2)
+            if (offset + 10 > dnsPayload.size) break
+
+            val ttl = ((dnsPayload[offset + 4].toLong() and 0xFF) shl 24) or
+                    ((dnsPayload[offset + 5].toLong() and 0xFF) shl 16) or
+                    ((dnsPayload[offset + 6].toLong() and 0xFF) shl 8) or
+                    (dnsPayload[offset + 7].toLong() and 0xFF)
+
+            val rdLength = ((dnsPayload[offset + 8].toInt() and 0xFF) shl 8) or
+                    (dnsPayload[offset + 9].toInt() and 0xFF)
+
+            offset += 10 + rdLength
+            if (offset > dnsPayload.size) break
+
+            minTtl = if (minTtl == null) ttl else minOf(minTtl, ttl)
+        }
+
+        return minTtl
+    }
+
     private fun extractQuestionSection(dnsPayload: ByteArray): ByteArray? {
         if (dnsPayload.size < DNS_HEADER_LEN) return null
         val parsed = parseQName(dnsPayload, DNS_HEADER_LEN) ?: return null
@@ -273,27 +368,34 @@ object DnsPacketParser {
         var offset = startOffset
         var jumped = false
         var bytesConsumed = 0
-        val visited = mutableSetOf<Int>()
+        var jumpCount = 0
+        var terminated = false
 
         while (offset < buffer.size) {
             val len = buffer[offset].toInt() and 0xFF
             if (len == 0) {
                 offset++
                 if (!jumped) bytesConsumed++
+                terminated = true
                 break
             }
 
             if ((len and 0xC0) == 0xC0) {
-                // Compression pointer
+                // Compression pointer (2 bytes on the wire)
                 if (offset + 1 >= buffer.size) return null
                 if (!jumped) bytesConsumed += 2
                 val pointerOffset = ((len and 0x3F) shl 8) or (buffer[offset + 1].toInt() and 0xFF)
-                if (pointerOffset in visited) return null // Loop detected
-                visited.add(pointerOffset)
+                // RFC 1035: Pointers must point past the 12-byte header and strictly backward
+                if (pointerOffset < DNS_HEADER_LEN || pointerOffset >= offset) return null
+                jumpCount++
+                if (jumpCount > 8) return null // Recursion / loop depth exceeded
                 offset = pointerOffset
                 jumped = true
                 continue
             }
+
+            if ((len and 0xC0) != 0) return null // Reserved label types
+            if (len > 63) return null // RFC 1035: Max label length is 63 octets
 
             if (!jumped) bytesConsumed += 1 + len
             offset++
@@ -303,6 +405,7 @@ object DnsPacketParser {
             offset += len
         }
 
+        if (!terminated) return null
         return Pair(labels.joinToString("."), if (jumped) bytesConsumed else (offset - startOffset))
     }
 

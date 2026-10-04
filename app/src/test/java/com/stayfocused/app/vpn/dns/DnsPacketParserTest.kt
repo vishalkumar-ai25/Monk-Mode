@@ -234,4 +234,153 @@ class DnsPacketParserTest {
         packet[11] = checksum.toByte()
         return packet
     }
+
+    @Test
+    fun testSkipWireNameUncompressedAndPointer() {
+        // Uncompressed www.google.com: \x03www\x06google\x03com\x00 (16 bytes)
+        val uncompressed = byteArrayOf(
+            3, 'w'.code.toByte(), 'w'.code.toByte(), 'w'.code.toByte(),
+            6, 'g'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'g'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(),
+            3, 'c'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(),
+            0
+        )
+        val bytesConsumed = DnsPacketParser.skipWireName(uncompressed, 0)
+        assertEquals(16, bytesConsumed)
+
+        // Compression pointer 0xC0 0x0C (2 bytes)
+        val pointer = byteArrayOf(0xC0.toByte(), 0x0C)
+        val pointerConsumed = DnsPacketParser.skipWireName(pointer, 0)
+        assertEquals(2, pointerConsumed)
+    }
+
+    @Test
+    fun testExtractMinTtlSingleAndMultipleAnswers() {
+        val out = ByteArrayOutputStream()
+        // Header: ID=1, QR=1 (response), QDCOUNT=1, ANCOUNT=2, NSCOUNT=0, ARCOUNT=0
+        out.write(byteArrayOf(0x12, 0x34, 0x81.toByte(), 0x80.toByte(), 0, 1, 0, 2, 0, 0, 0, 0))
+        // Question: example.com, QTYPE=1, QCLASS=1
+        out.write(byteArrayOf(7, 'e'.code.toByte(), 'x'.code.toByte(), 'a'.code.toByte(), 'm'.code.toByte(), 'p'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(), 3, 'c'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0))
+        out.write(byteArrayOf(0, 1, 0, 1))
+
+        // Answer 1: pointer 0xC0 0x0C, TYPE=A (1), CLASS=IN (1), TTL=120, RDLENGTH=4, RDATA=1.2.3.4
+        out.write(byteArrayOf(0xC0.toByte(), 0x0C, 0, 1, 0, 1, 0, 0, 0, 120, 0, 4, 1, 2, 3, 4))
+
+        // Answer 2: pointer 0xC0 0x0C, TYPE=A (1), CLASS=IN (1), TTL=45, RDLENGTH=4, RDATA=5.6.7.8
+        out.write(byteArrayOf(0xC0.toByte(), 0x0C, 0, 1, 0, 1, 0, 0, 0, 45, 0, 4, 5, 6, 7, 8))
+
+        val responsePayload = out.toByteArray()
+        val minTtl = DnsPacketParser.extractMinTtl(responsePayload)
+        assertEquals(45L, minTtl)
+    }
+
+    @Test
+    fun testExtractMinTtlIgnoresOptAdditionalRecord() {
+        val out = ByteArrayOutputStream()
+        // Header: QDCOUNT=1, ANCOUNT=1, NSCOUNT=0, ARCOUNT=1
+        out.write(byteArrayOf(0x56, 0x78, 0x81.toByte(), 0x80.toByte(), 0, 1, 0, 1, 0, 0, 0, 1))
+        // Question
+        out.write(byteArrayOf(4, 't'.code.toByte(), 'e'.code.toByte(), 's'.code.toByte(), 't'.code.toByte(), 0, 0, 1, 0, 1))
+        // Answer: TTL = 300
+        out.write(byteArrayOf(0xC0.toByte(), 0x0C, 0, 1, 0, 1, 0, 0, 1, 0x2C, 0, 4, 1, 1, 1, 1))
+        // Additional (OPT record with pseudo-TTL = 0x80000000 / large value)
+        out.write(byteArrayOf(0, 0, 41, 0x10, 0, 0x80.toByte(), 0, 0, 0, 0, 0))
+
+        val responsePayload = out.toByteArray()
+        val minTtl = DnsPacketParser.extractMinTtl(responsePayload)
+        assertEquals("Must parse strictly ANCOUNT records and ignore OPT record", 300L, minTtl)
+    }
+
+    @Test
+    fun testExtractMinTtlNullWhenNoAnswersOrTruncated() {
+        // ANCOUNT = 0
+        val noAnswers = byteArrayOf(0, 1, 0x81.toByte(), 0x83.toByte(), 0, 1, 0, 0, 0, 0, 0, 0)
+        org.junit.Assert.assertNull(DnsPacketParser.extractMinTtl(noAnswers))
+
+        // Truncated payload (< 12 bytes)
+        org.junit.Assert.assertNull(DnsPacketParser.extractMinTtl(byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
+    fun testParseIpPacketRejectsMalformedIhlAndLengths() {
+        val validPayload = buildSampleDnsQueryPayload("google.com")
+        val validPacket = buildSampleIpv4UdpPacket(dnsPayload = validPayload)
+
+        // 1. IHL < 20 (e.g. IHL = 4 * 4 = 16)
+        val badIhlLow = validPacket.copyOf()
+        badIhlLow[0] = 0x44.toByte() // version 4, IHL 4 (16 bytes)
+        org.junit.Assert.assertNull("IHL < 20 must be rejected", DnsPacketParser.parseIpPacket(badIhlLow))
+
+        // 2. IHL > packet.size
+        val badIhlHigh = validPacket.copyOf()
+        badIhlHigh[0] = 0x4F.toByte() // version 4, IHL 15 (60 bytes on short packet)
+        val shortPacket = badIhlHigh.copyOf(30)
+        org.junit.Assert.assertNull("IHL > packet.size must be rejected", DnsPacketParser.parseIpPacket(shortPacket))
+
+        // 3. totalLength < ihl + 8
+        val badTotalLen = validPacket.copyOf()
+        badTotalLen[2] = 0
+        badTotalLen[3] = 24 // totalLength 24 < 20 + 8
+        org.junit.Assert.assertNull("totalLength < ihl + UDP_HEADER_LEN must be rejected", DnsPacketParser.parseIpPacket(badTotalLen))
+
+        // 4. UDP length < 8
+        val badUdpLen = validPacket.copyOf()
+        badUdpLen[24] = 0
+        badUdpLen[25] = 4 // UDP length 4 < 8
+        org.junit.Assert.assertNull("udpLength < 8 must be rejected", DnsPacketParser.parseIpPacket(badUdpLen))
+
+        // 5. Short packet (< 28 bytes)
+        org.junit.Assert.assertNull(DnsPacketParser.parseIpPacket(ByteArray(20)))
+    }
+
+    @Test
+    fun testParseQNamePointerBoundaryAndLoopRejection() {
+        // Forward pointer: byte 12 points forward to byte 25
+        val forwardPointer = ByteArray(30)
+        forwardPointer[0] = 0x12; forwardPointer[1] = 0x34
+        forwardPointer[4] = 0; forwardPointer[5] = 1 // QDCOUNT = 1
+        forwardPointer[12] = 0xC0.toByte(); forwardPointer[13] = 25
+        org.junit.Assert.assertNull("Forward pointer must be rejected", DnsPacketParser.parseDnsQuery(forwardPointer))
+
+        // Pointer into DNS header (< 12)
+        val headerPointer = ByteArray(30)
+        headerPointer[0] = 0x12; headerPointer[1] = 0x34
+        headerPointer[4] = 0; headerPointer[5] = 1
+        headerPointer[12] = 0xC0.toByte(); headerPointer[13] = 6 // points to byte 6
+        org.junit.Assert.assertNull("Pointer into header must be rejected", DnsPacketParser.parseDnsQuery(headerPointer))
+
+        // Circular pointer loop (offset 14 points to offset 14)
+        val loopPayload = ByteArray(30)
+        loopPayload[0] = 0x12; loopPayload[1] = 0x34
+        loopPayload[4] = 0; loopPayload[5] = 1
+        loopPayload[12] = 1; loopPayload[13] = 'a'.code.toByte()
+        loopPayload[14] = 0xC0.toByte(); loopPayload[15] = 14
+        org.junit.Assert.assertNull("Circular loop pointer must be rejected", DnsPacketParser.parseDnsQuery(loopPayload))
+    }
+
+    @Test
+    fun testParseQNameRejectsUnterminatedDomain() {
+        // Buffer ends right after label characters without root null terminator (0x00)
+        val unterminated = byteArrayOf(
+            0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            3, 'a'.code.toByte(), 'b'.code.toByte(), 'c'.code.toByte()
+        )
+        org.junit.Assert.assertNull("Unterminated domain name must be rejected", DnsPacketParser.parseDnsQuery(unterminated))
+    }
+
+    @Test
+    fun testFuzzRandomByteArraysNeverCrashes() {
+        val random = java.util.Random(42)
+        for (i in 0 until 500) {
+            val size = random.nextInt(1500)
+            val randomBytes = ByteArray(size)
+            random.nextBytes(randomBytes)
+
+            // Neither parseIpPacket nor parseDnsQuery nor isTcpPort853 should ever throw
+            DnsPacketParser.parseIpPacket(randomBytes)
+            DnsPacketParser.parseDnsQuery(randomBytes)
+            DnsPacketParser.isTcpPort853(randomBytes)
+            DnsPacketParser.extractMinTtl(randomBytes)
+            DnsPacketParser.skipWireName(randomBytes, 0)
+        }
+    }
 }

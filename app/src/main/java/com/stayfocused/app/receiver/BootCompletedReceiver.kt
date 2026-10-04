@@ -86,6 +86,19 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
                 // Immediately reconcile active strict schedules and arm if inside scheduled window
                 StrictScheduleReceiver().reconcileSchedules(context, db)
+
+                // Autostart DnsVpnService on boot if VPN permission is already prepared
+                if (isBoot && android.net.VpnService.prepare(context) == null) {
+                    try {
+                        val vpnIntent = Intent(context, com.stayfocused.app.vpn.DnsVpnService::class.java).apply {
+                            setAction(com.stayfocused.app.vpn.DnsVpnService.ACTION_START)
+                        }
+                        androidx.core.content.ContextCompat.startForegroundService(context, vpnIntent)
+                        Log.i(TAG, "DnsVpnService autostarted on boot (VPN permission already prepared).")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not autostart DnsVpnService on boot", e)
+                    }
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed during boot reconciliation in receiver", e)
             } finally {
