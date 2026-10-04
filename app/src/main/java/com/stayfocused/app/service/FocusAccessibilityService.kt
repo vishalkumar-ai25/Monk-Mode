@@ -221,6 +221,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 windowTexts = effectiveTexts,
                 isStrictModeActive = isStrictActive,
                 isGracePeriodActive = isGracePeriodActive,
+                wasStrictActiveAtBoot = com.stayfocused.app.strict.GracePeriodManager.wasStrictActiveAtBoot,
                 antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED || isStrictActive
             )
 
@@ -260,7 +261,8 @@ class FocusAccessibilityService : AccessibilityService() {
             isBreakActive = isBreakActive,
             antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED || isStrictActive,
             isSettingsOrInstaller = false,
-            isGracePeriodActive = isGracePeriodActive
+            isGracePeriodActive = isGracePeriodActive,
+            wasStrictActiveAtBoot = com.stayfocused.app.strict.GracePeriodManager.wasStrictActiveAtBoot
         )
 
         val decision = engine.evaluate(context)

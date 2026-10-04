@@ -346,15 +346,30 @@ class SettingsTamperInspectorTest {
     }
 
     @Test
-    fun testAllowedWhenBootGracePeriodActive() {
+    fun testAllowedWhenBootGracePeriodActiveAndNoStrictAtBoot() {
         val decision = inspector.evaluate(
             packageName = "com.android.settings",
             className = "com.android.settings.applications.InstalledAppDetails",
             windowTexts = listOf("Monk Mode", "Uninstall", "Force stop"),
             isStrictModeActive = true,
             isGracePeriodActive = true,
+            wasStrictActiveAtBoot = false,
             antiTamperEnabled = true
         )
-        assertTrue("Must allow during boot grace period for recovery", decision is SettingsTamperInspector.TamperDecision.Allow)
+        assertTrue("Must allow during boot grace period when no strict session was active at boot", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testDeniedWhenStrictActiveAtBoot() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.applications.InstalledAppDetails",
+            windowTexts = listOf("Monk Mode", "Uninstall", "Force stop"),
+            isStrictModeActive = true,
+            isGracePeriodActive = true,
+            wasStrictActiveAtBoot = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Must block when strict mode was active at boot even if grace flag is passed", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
     }
 }

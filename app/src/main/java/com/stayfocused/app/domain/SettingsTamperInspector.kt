@@ -102,14 +102,21 @@ class SettingsTamperInspector(
         windowTexts: Collection<String>,
         isStrictModeActive: Boolean,
         isGracePeriodActive: Boolean = false,
+        wasStrictActiveAtBoot: Boolean = false,
         antiTamperEnabled: Boolean = BuildConfig.ANTI_TAMPER_ENABLED
     ): TamperDecision {
-        // Invariant 1: If anti-tamper is disabled (e.g. debug builds) or grace period is active, allow
-        if (!antiTamperEnabled || isGracePeriodActive) {
+        // Invariant 1: If anti-tamper is disabled (e.g. debug builds), allow
+        if (!antiTamperEnabled) {
             return TamperDecision.Allow
         }
 
-        // Invariant 2: Only enforce when Strict Mode is active
+        // Invariant 2: Boot grace period applies ONLY if no strict session was active at boot.
+        // If strict mode was active at boot, no grace is granted (escape hatches: Layer 4 ADB or Layer 2 recovery code).
+        if (isGracePeriodActive && !wasStrictActiveAtBoot) {
+            return TamperDecision.Allow
+        }
+
+        // Invariant 3: Only enforce when Strict Mode is active
         if (!isStrictModeActive) {
             return TamperDecision.Allow
         }

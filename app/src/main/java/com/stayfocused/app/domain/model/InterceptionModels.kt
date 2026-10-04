@@ -70,6 +70,7 @@ data class InterceptionContext(
     val antiTamperEnabled: Boolean = false,
     val isSettingsOrInstaller: Boolean = false,
     val isGracePeriodActive: Boolean = false,
+    val wasStrictActiveAtBoot: Boolean = false,
     val isBreakActive: Boolean = false,
     val zoneId: ZoneId = ZoneId.systemDefault()
 )

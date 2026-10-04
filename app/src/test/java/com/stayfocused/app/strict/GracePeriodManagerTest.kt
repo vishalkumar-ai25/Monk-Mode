@@ -19,6 +19,7 @@ class GracePeriodManagerTest {
 
     @Before
     fun setUp() {
+        GracePeriodManager.clearGracePeriod()
         gracePeriodManager = GracePeriodManager(
             gracePeriodDurationMs = 5 * 60 * 1000L // 5 minutes
         )
@@ -52,6 +53,32 @@ class GracePeriodManagerTest {
     }
 
     @Test
+    fun testGraceDeniedWhenStrictActiveAtBoot() {
+        val strictGraceManager = GracePeriodManager(
+            gracePeriodDurationMs = 5 * 60 * 1000L,
+            wasStrictActiveAtBoot = true
+        )
+        val elapsed2Min = 2 * 60 * 1000L
+        assertFalse(
+            "Grace period must be denied when strict was active at boot",
+            strictGraceManager.isGracePeriodActive(elapsedRealtimeMs = elapsed2Min)
+        )
+        assertEquals(0L, strictGraceManager.getRemainingGracePeriodMs(elapsedRealtimeMs = elapsed2Min))
+    }
+
+    @Test
+    fun testCompanionActivateAndClearGracePeriod() {
+        GracePeriodManager.clearGracePeriod()
+        assertFalse("Grace must not be active when cleared", GracePeriodManager.isDefaultGracePeriodActive())
+
+        GracePeriodManager.activateGracePeriod(wasStrictActiveAtBoot = false)
+        assertTrue("Grace must be active when granted without strict session at boot", GracePeriodManager.isDefaultGracePeriodActive())
+
+        GracePeriodManager.activateGracePeriod(wasStrictActiveAtBoot = true)
+        assertFalse("Grace must be cleared and denied if strict was active at boot", GracePeriodManager.isDefaultGracePeriodActive())
+    }
+
+    @Test
     fun testSettingsAllowedDuringGracePeriodButBlockedAfterwards() {
         val settingsContextGraceActive = InterceptionContext(
             targetPackageName = "com.android.settings",
@@ -59,6 +86,7 @@ class GracePeriodManagerTest {
             antiTamperEnabled = true,
             isStrictModeActive = true,
             isGracePeriodActive = true,
+            wasStrictActiveAtBoot = false,
             currentTimeMillis = 1_000_000L,
             zoneId = ZoneId.systemDefault()
         )
@@ -67,6 +95,13 @@ class GracePeriodManagerTest {
         assertTrue(
             "Settings must be allowed during boot grace period",
             resultDuringGrace is InterceptionResult.Allow
+        )
+
+        val settingsContextStrictAtBoot = settingsContextGraceActive.copy(wasStrictActiveAtBoot = true)
+        val resultStrictAtBoot = decisionEngine.evaluate(settingsContextStrictAtBoot)
+        assertTrue(
+            "Settings must be blocked when strict was active at boot even if grace period is active",
+            resultStrictAtBoot is InterceptionResult.Block
         )
 
         val settingsContextGraceExpired = settingsContextGraceActive.copy(isGracePeriodActive = false)

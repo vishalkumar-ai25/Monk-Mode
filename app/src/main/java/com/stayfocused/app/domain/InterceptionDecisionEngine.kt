@@ -97,8 +97,8 @@ class InterceptionDecisionEngine {
             return InterceptionResult.Allow("Anti-tamper disabled in debug variant")
         }
 
-        // If boot grace period is active (e.g. 3-5 min after reboot), allow settings to fix crashes
-        if (context.isGracePeriodActive) {
+        // If boot grace period is active (e.g. 3-5 min after reboot) and no strict session was active at boot, allow settings to fix crashes
+        if (context.isGracePeriodActive && !context.wasStrictActiveAtBoot) {
             return InterceptionResult.Allow("Boot grace period active")
         }
 

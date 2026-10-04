@@ -25,7 +25,7 @@ Stay Focused utilizes a 4-layer defense-in-depth model:
 | :--- | :--- | :--- |
 | **Layer 1** | **Time-Delayed Unlock** | 24–48 hour delay before release locks are relaxed. Requires double-confirmation. |
 | **Layer 2** | **Emergency Recovery Code** | 16-character alphanumeric code (`XXXX-XXXX-XXXX-XXXX`) generated once during setup. Stored as a PBKDF2WithHmacSHA256 hash with 16-byte random salt. Entering code cancels all active strict sessions immediately. Single-use only. |
-| **Layer 3** | **Scoped Boot Grace Period** | For 5 minutes after device restart, Settings-blocking and Device Admin lockout are suspended **ONLY**. App blocks and website blocks remain 100% active to prevent reboot abuse. |
+| **Layer 3** | **Scoped Boot Grace Period** | 5-minute post-reboot window suspending Settings-blocking and Device Admin lockout to resolve startup crashes. **Applies ONLY if no strict session was active at boot.** If a strict session was active across reboot, zero grace is granted (escape hatches: Layer 2 Emergency Code or Layer 4 ADB). Package updates (`MY_PACKAGE_REPLACED`) do not grant grace. App and website blocks remain 100% active. |
 | **Layer 4** | **Developer ADB Escape Hatch** | Command-line emergency override via USB debugging without requiring device rooting. |
 
 ---
