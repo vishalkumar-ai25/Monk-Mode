@@ -153,12 +153,15 @@ class FocusAccessibilityService : AccessibilityService() {
         // Notification shade, volume panel, IME, permission dialogs and our own
         // overlay windows must NOT hide a live block overlay, update the last real
         // foreground package, or count as a new app launch.
-        if (transientFilter?.isTransient(target, className) == true) {
+        // Exception: Uninstaller dialogs (e.g. UninstallerActivity in permissioncontroller)
+        // must NOT be suppressed so anti-tamper can intercept uninstallation attempts.
+        val isUninstallDialog = className?.contains("uninstall", ignoreCase = true) == true ||
+                windowTexts.any { it.contains("uninstall", ignoreCase = true) }
+        if (!isUninstallDialog && transientFilter?.isTransient(target, className) == true) {
             Log.d(TAG, "Ignoring transient window event from $target ($className)")
             return
         }
         // ─────────────────────────────────────────────────────────────────────
-
 
         val activeSession = cachedActiveStrictSession
         val isStrictActive = if (activeSession != null && activeSession.isActive) {
@@ -172,7 +175,42 @@ class FocusAccessibilityService : AccessibilityService() {
                 SettingsTamperInspector.SETTINGS_PACKAGES.contains(target.lowercase()) ||
                 SettingsTamperInspector.INSTALLER_PACKAGES.contains(target.lowercase()) ||
                 target.lowercase() == SettingsTamperInspector.PLAY_STORE_PACKAGE ||
-                target.lowercase().endsWith(".settings")
+                target.lowercase() == SettingsTamperInspector.VPN_DIALOGS_PACKAGE ||
+                target.lowercase().endsWith(".settings") ||
+                target.lowercase().contains("safecenter") ||
+                target.lowercase().contains("securitycenter")
+
+        // Code-level privacy scoping: node text extraction is ONLY performed when navigating
+        // into settings or installer packages, ensuring zero screen-scraping for user apps.
+        val effectiveTexts = if (isTargetSettingsOrInstaller) {
+            try {
+                val gathered = mutableListOf<String>()
+                gathered.addAll(windowTexts)
+                fun collectTexts(node: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
+                    if (node == null || depth > 4 || gathered.size >= 25) return
+                    node.text?.toString()?.takeIf { it.isNotBlank() }?.let { gathered.add(it) }
+                    node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { gathered.add(it) }
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                        node.paneTitle?.toString()?.takeIf { it.isNotBlank() }?.let { gathered.add(it) }
+                    }
+                    for (i in 0 until node.childCount) {
+                        if (gathered.size >= 25) break
+                        collectTexts(node.getChild(i), depth + 1)
+                    }
+                }
+                collectTexts(rootInActiveWindow, 0)
+                gathered
+            } catch (_: Throwable) {
+                windowTexts
+            }
+        } else {
+            windowTexts
+        }
+
+        // Diagnostics logging (Step 1): debug-only log of (packageName, className, windowTexts) for settings/installer windows
+        if (BuildConfig.DEBUG && isTargetSettingsOrInstaller) {
+            Log.d(TAG, "Settings/Installer window: pkg=$target, cls=$className, texts=$effectiveTexts")
+        }
 
         // Fine-grained anti-tamper inspection for Settings, PackageInstaller, and Play Store
         if (isTargetSettingsOrInstaller) {
@@ -180,7 +218,7 @@ class FocusAccessibilityService : AccessibilityService() {
             val tamperDecision = tamperInspector.evaluate(
                 packageName = target,
                 className = className,
-                windowTexts = windowTexts,
+                windowTexts = effectiveTexts,
                 isStrictModeActive = isStrictActive,
                 isGracePeriodActive = isGracePeriodActive,
                 antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED || isStrictActive

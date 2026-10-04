@@ -9,7 +9,7 @@
 **Stay Focused** is an open-source, native Kotlin application engineered to eliminate phone addiction, compulsive app switching, and distracting web browsing. Unlike commercial apps bound by Google Play Store policy constraints, Stay Focused enforces uncompromising strict mode controls, low-level DNS filtering, and anti-tamper protections designed exclusively for personal ownership.
 
 ### Core Principles
-- **Absolute Privacy**: Zero external network telemetry, zero trackers, and zero screen-scraping (`canRetrieveWindowContent="false"`).
+- **Code-Scoped Privacy & Zero Scraping on User Apps**: Zero external network telemetry, zero analytics/trackers, and strictly code-scoped accessibility inspection. Window content inspection (`canRetrieveWindowContent="true"`) is strictly confined in code to system Settings and package installer dialogs solely for anti-tamper enforcement (preventing force-stop, app data clearing, Device Admin deactivation, clock manipulation, and uninstallation during active Strict Mode). For all personal and third-party user applications (browsers, messaging, banking, social media), Monk Mode guarantees zero screen-scraping—only package transitions are observed.
 - **Sub-10ms Interception**: Real-time app interception via an in-memory hot cache.
 - **Universal Website Blocking**: Loopback DNS Proxy VPN intercepts web domains system-wide across Chrome, Firefox, Brave, and embedded WebViews.
 - **Negligible Battery Overhead**: Narrow routing (`10.0.0.2/32`) ensures general web traffic (HTTPS, streaming, sockets) never enters the VPN tunnel.
@@ -149,6 +149,16 @@ To prevent realme UI's aggressive battery manager from terminating background wo
 | Synthesizes NXDOMAIN/0.0.0.0|                   |   Forward to 1.1.1.1:53     |
 +-----------------------------+                   +-----------------------------+
 ```
+
+### Privacy Architecture & Accessibility Scoping Evaluation
+
+During security architecture evaluation ([ADR 012](docs/adr/012-settings-tamper-detection-and-accessibility-scoping.md)), configuring a static `android:packageNames` filter in `accessibility_service_config.xml` (e.g. limiting the service exclusively to settings and installer packages) was thoroughly evaluated. When `android:packageNames` is defined statically in the service configuration XML, the Android OS drops window state accessibility events for all unlisted packages. This would completely break App Limits and foreground time tracking for user applications (Instagram, Chrome, YouTube, etc.).
+
+To resolve this while preserving ironclad user privacy:
+1. **Global Event Listening, Zero User Content Scraping**: The accessibility configuration omits static `android:packageNames` so package transitions can be tracked across all user apps to enforce usage limits.
+2. **Code-Level Privacy Boundary**: `FocusAccessibilityService` checks `isTargetSettingsOrInstaller` before ever querying `rootInActiveWindow`.
+   - **Settings & Installer Windows**: Inspected strictly for tamper detection (Force stop buttons, Clear data actions, Device admin deactivation, Date/Time changes, and Uninstallation prompts).
+   - **User & Personal Apps**: Window content, text, views, and inputs are **NEVER** inspected, queried, or scraped. Only the package name (`event.packageName`) is evaluated against local database limits.
 
 ---
 

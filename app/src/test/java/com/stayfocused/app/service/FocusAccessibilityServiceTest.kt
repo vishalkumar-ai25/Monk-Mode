@@ -230,6 +230,29 @@ class FocusAccessibilityServiceTest {
         }
     }
 
+    @Test
+    fun testPermissionControllerUninstallerBypassesTransientFilterAndBlocks() {
+        service.isStrictModeActive = true
+        every { service.performGlobalAction(any()) } returns true
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = "com.android.permissioncontroller"
+            className = "com.android.permissioncontroller.permission.ui.UninstallerActivity"
+            text.add("Do you want to uninstall this app?")
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) }
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.SettingsTamper },
+                any()
+            )
+        }
+    }
+
     // ─── Transient-window bug-fix tests ───────────────────────────────────────
 
     /**

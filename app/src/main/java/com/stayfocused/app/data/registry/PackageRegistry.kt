@@ -74,7 +74,10 @@ class PackageRegistry private constructor(
 
         val DEFAULT_SETTINGS = setOf(
             "com.android.settings",
+            "com.google.android.settings",
             "com.google.android.settings.intelligence",
+            "com.coloros.settings",
+            "com.oplus.settings",
             "com.samsung.android.settings",
             "com.miui.securitycenter",
             "com.miui.cleanmaster",
@@ -83,7 +86,11 @@ class PackageRegistry private constructor(
             "com.vivo.permissionmanager",
             "com.iqoo.secure",
             "com.android.packageinstaller",
-            "com.google.android.packageinstaller"
+            "com.google.android.packageinstaller",
+            "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+            "com.android.vending",
+            "com.android.vpndialogs"
         )
 
         fun createDefault(): PackageRegistry {
