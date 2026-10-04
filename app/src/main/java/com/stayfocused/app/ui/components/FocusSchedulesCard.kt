@@ -2,7 +2,6 @@ package com.stayfocused.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,15 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -40,6 +36,7 @@ import com.stayfocused.app.ui.theme.MonkCard
 import com.stayfocused.app.ui.theme.MonkCardAlt
 import com.stayfocused.app.ui.theme.MonkDanger
 import com.stayfocused.app.ui.theme.MonkEmber
+import com.stayfocused.app.ui.theme.MonkEmberDim
 import com.stayfocused.app.ui.theme.MonkInk
 import com.stayfocused.app.ui.theme.MonkLine
 import com.stayfocused.app.ui.theme.MonkMuted
@@ -187,7 +184,8 @@ fun FocusSchedulesCard(
                                 // Days of week row
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     dayLetters.forEachIndexed { idx, letter ->
                                         val isActive = (schedule.daysOfWeekMask and (1 shl idx)) != 0
@@ -213,35 +211,43 @@ fun FocusSchedulesCard(
                                             )
                                         }
                                     }
-
-                                    Spacer(modifier = Modifier.weight(1f))
-
-                                    // Challenge tag
-                                    val challengeTag = when (schedule.deactivationChallenge) {
-                                        "RANDOM_TEXT" -> "Quote"
-                                        "COOL_DOWN" -> "24h Delay"
-                                        else -> "Timer Only"
-                                    }
-                                    Text(
-                                        text = challengeTag,
-                                        fontSize = 11.sp,
-                                        maxLines = 1,
-                                        color = MonkEmber,
-                                        modifier = Modifier.align(Alignment.CenterVertically)
-                                    )
                                 }
 
-                                if (!isStrictModeActive) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Challenge tag row below weekdays
+                                val challengeTag = when (schedule.deactivationChallenge) {
+                                    "RANDOM_TEXT" -> "Quote Challenge"
+                                    "COOL_DOWN" -> "24h Delay"
+                                    else -> "Timer Only"
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(MonkEmberDim, RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
-                                        TextButton(onClick = { onEditScheduleClick(schedule) }) {
-                                            Text("Edit", fontSize = 12.sp, color = MonkEmber)
-                                        }
-                                        TextButton(onClick = { onDeleteScheduleClick(schedule.id) }) {
-                                            Text("Delete", fontSize = 12.sp, color = MonkDanger)
+                                        Text(
+                                            text = challengeTag,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MonkEmber
+                                        )
+                                    }
+
+                                    if (!isStrictModeActive) {
+                                        Row {
+                                            TextButton(onClick = { onEditScheduleClick(schedule) }) {
+                                                Text("Edit", fontSize = 12.sp, color = MonkEmber)
+                                            }
+                                            TextButton(onClick = { onDeleteScheduleClick(schedule.id) }) {
+                                                Text("Delete", fontSize = 12.sp, color = MonkDanger)
+                                            }
                                         }
                                     }
                                 }

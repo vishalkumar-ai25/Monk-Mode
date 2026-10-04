@@ -160,64 +160,6 @@ fun WebBlockerScreen(
             }
         }
 
-        // Quick Category Presets — flat card
-        item {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MonkCard),
-                modifier = Modifier.border(1.dp, MonkLine, RoundedCornerShape(18.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Quick Presets",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = MonkMuted
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PresetDomainButton(
-                            domain = "reddit.com",
-                            modifier = Modifier.weight(1f),
-                            onClick = { addDomain(database, scope, context, "reddit.com") }
-                        )
-                        PresetDomainButton(
-                            domain = "instagram.com",
-                            modifier = Modifier.weight(1f),
-                            onClick = { addDomain(database, scope, context, "instagram.com") }
-                        )
-                        PresetDomainButton(
-                            domain = "twitter.com",
-                            modifier = Modifier.weight(1f),
-                            onClick = { addDomain(database, scope, context, "twitter.com") }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PresetDomainButton(
-                            domain = "youtube.com",
-                            modifier = Modifier.weight(1f),
-                            onClick = { addDomain(database, scope, context, "youtube.com") }
-                        )
-                        PresetDomainButton(
-                            domain = "tiktok.com",
-                            modifier = Modifier.weight(1f),
-                            onClick = { addDomain(database, scope, context, "tiktok.com") }
-                        )
-                    }
-                }
-            }
-        }
-
         // Add Custom Domain — flat card
         item {
             Card(
@@ -335,7 +277,7 @@ fun WebBlockerScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Add domains or use quick presets above to block distracting websites.",
+                            text = "Add a domain above to block distracting websites.",
                             style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted.copy(alpha = 0.6f), fontSize = 12.sp)
                         )
                     }
@@ -435,24 +377,6 @@ fun BlockedDomainItemCard(
                 Text("✕", fontWeight = FontWeight.Bold)
             }
         }
-    }
-}
-
-@Composable
-private fun PresetDomainButton(
-    domain: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MonkLine),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = MonkEmber)
-    ) {
-        Text(text = domain, fontSize = 11.sp, maxLines = 1)
     }
 }
 
