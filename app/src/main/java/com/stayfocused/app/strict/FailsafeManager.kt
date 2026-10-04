@@ -1,5 +1,6 @@
 package com.stayfocused.app.strict
 
+import android.os.SystemClock
 import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
 import com.stayfocused.app.data.local.dao.StrictSessionDao
@@ -14,17 +15,42 @@ import com.stayfocused.app.util.RecoveryCodeHasher
  * 1. Single-use, high-entropy 16-character emergency recovery codes (PBKDF2/SHA-256 hashed).
  * 2. 24–48 hour time-delayed unlock flow preventing impulsive overrides of strict focus sessions.
  * 3. Append-only tamper-evident audit logging for all failsafe events.
+ *
+ * Delayed unlock timing is guarded by [TrustedClock] so manual wall-clock manipulation
+ * cannot prematurely finalize the delay.
  */
 class FailsafeManager(
     private val recoveryCodeDao: RecoveryCodeDao,
     private val strictSessionDao: StrictSessionDao,
     private val failsafeLogDao: FailsafeLogDao? = null,
-    private val timeProvider: () -> Long = { System.currentTimeMillis() }
+    timeProvider: (() -> Long)? = null,
+    private val elapsedRealtimeProvider: (() -> Long)? = null,
+    private val bootCountProvider: () -> Int = { 0 },
+    private val trustedClock: TrustedClock = TrustedClock()
 ) {
+    private val isCustomTimeProvider = timeProvider != null
+    private val timeProvider: () -> Long = timeProvider ?: { System.currentTimeMillis() }
 
     companion object {
         const val MIN_DELAY_UNLOCK_MS: Long = 24 * 60 * 60 * 1000L // 24 hours
         const val MAX_DELAY_UNLOCK_MS: Long = 48 * 60 * 60 * 1000L // 48 hours
+    }
+
+    private fun currentSnapshot(wallTime: Long = timeProvider()): ClockSnapshot {
+        val elapsed = elapsedRealtimeProvider?.invoke() ?: if (isCustomTimeProvider) {
+            wallTime
+        } else {
+            try {
+                SystemClock.elapsedRealtime()
+            } catch (_: Throwable) {
+                wallTime
+            }
+        }
+        return ClockSnapshot(
+            elapsedRealtimeMs = elapsed,
+            wallTimeMs = wallTime,
+            bootCount = bootCountProvider()
+        )
     }
 
     /**
@@ -106,16 +132,20 @@ class FailsafeManager(
         if (!session.isActive) return false
 
         val duration = delayDurationMs.coerceIn(MIN_DELAY_UNLOCK_MS, MAX_DELAY_UNLOCK_MS)
-        val updated = session.copy(
-            delayedUnlockRequestTime = timeProvider(),
-            delayedUnlockDurationMs = duration
+        val snapshot = currentSnapshot()
+        val checkpointed = trustedClock.checkpoint(session, snapshot)
+
+        val updated = checkpointed.copy(
+            delayedUnlockRequestTime = snapshot.wallTimeMs,
+            delayedUnlockDurationMs = duration,
+            delayedUnlockStartAccumulatedMs = checkpointed.accumulatedMonotonicMs
         )
         strictSessionDao.updateSession(updated)
 
         val hours = duration / (60 * 60 * 1000L)
         failsafeLogDao?.insertLog(
             FailsafeLogEntity(
-                timestamp = timeProvider(),
+                timestamp = snapshot.wallTimeMs,
                 eventType = FailsafeEventType.DELAY_REQUESTED.name,
                 details = "Requested ${hours}h delayed unlock for Strict Session #${session.id}",
                 success = true
@@ -132,7 +162,12 @@ class FailsafeManager(
             ?: strictSessionDao.getActiveStrictSessionSync()
             ?: return false
 
-        val updated = session.copy(delayedUnlockRequestTime = null)
+        val snapshot = currentSnapshot()
+        val checkpointed = trustedClock.checkpoint(session, snapshot)
+        val updated = checkpointed.copy(
+            delayedUnlockRequestTime = null,
+            delayedUnlockStartAccumulatedMs = null
+        )
         strictSessionDao.updateSession(updated)
 
         failsafeLogDao?.insertLog(
@@ -148,7 +183,7 @@ class FailsafeManager(
 
     /**
      * Attempts to finalize a time-delayed unlock. Only succeeds if the requested delay duration
-     * has fully elapsed.
+     * has fully elapsed as verified by [TrustedClock].
      */
     suspend fun tryFinalizeDelayedUnlock(
         sessionId: Long,
@@ -159,10 +194,12 @@ class FailsafeManager(
             ?: return false
 
         if (!session.isActive) return false
-        val reqTime = session.delayedUnlockRequestTime ?: return false
-        val duration = session.delayedUnlockDurationMs
+        if (session.delayedUnlockRequestTime == null) return false
 
-        if (currentTimeMs - reqTime >= duration) {
+        val snapshot = currentSnapshot(currentTimeMs)
+        val remaining = trustedClock.getRemainingDelayMs(session, snapshot)
+
+        if (remaining <= 0L) {
             strictSessionDao.deactivateAllSessions()
             failsafeLogDao?.insertLog(
                 FailsafeLogEntity(
@@ -190,10 +227,8 @@ class FailsafeManager(
      */
     fun getRemainingDelayMs(session: StrictSessionEntity, currentTimeMs: Long = timeProvider()): Long {
         if (!isUnlockPending(session)) return 0L
-        val reqTime = session.delayedUnlockRequestTime ?: return 0L
-        val unlockTime = reqTime + session.delayedUnlockDurationMs
-        val remaining = unlockTime - currentTimeMs
-        return if (remaining > 0L) remaining else 0L
+        val snapshot = currentSnapshot(currentTimeMs)
+        return trustedClock.getRemainingDelayMs(session, snapshot)
     }
 
     fun getDelayedUnlockRemainingMs(session: StrictSessionEntity, currentTimeMs: Long = timeProvider()): Long {

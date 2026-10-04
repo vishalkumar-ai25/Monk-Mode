@@ -26,5 +26,11 @@ data class StrictSessionEntity(
     val delayedUnlockDurationMs: Long = 24 * 60 * 60 * 1000L,
     val isActive: Boolean = true,
     val startElapsedRealtime: Long = 0L,
-    val deactivationChallenge: String = "EXPIRATION_ONLY"
+    val deactivationChallenge: String = "EXPIRATION_ONLY",
+    val accumulatedMonotonicMs: Long = 0L,
+    val lastElapsedRealtime: Long = startElapsedRealtime,
+    val lastWallTime: Long = startTime,
+    val bootCount: Int = -1,
+    val delayedUnlockStartAccumulatedMs: Long? = null,
+    val isScheduled: Boolean = false
 )

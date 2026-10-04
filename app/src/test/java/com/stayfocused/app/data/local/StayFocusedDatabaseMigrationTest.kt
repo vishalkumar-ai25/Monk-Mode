@@ -283,5 +283,50 @@ class StayFocusedDatabaseMigrationTest {
         assertEquals(0L, scheduleCursor.getLong(8))
         scheduleCursor.close()
     }
+
+    @Test
+    fun migrate5To6_preservesExistingDataAndAddsMonotonicCheckpointColumns() {
+        // 1. Create database at version 5
+        var db = helper.createDatabase(TEST_DB + "-v5", 5)
+
+        db.execSQL(
+            "INSERT INTO focus_profiles (id, name, isActive, isStrictMode, activeDaysMask) " +
+                "VALUES (1, 'Deep Work', 1, 1, 127)"
+        )
+        db.execSQL(
+            "INSERT INTO strict_sessions (id, profileId, startTime, targetEndTime, delayedUnlockDurationMs, isActive, startElapsedRealtime, deactivationChallenge) " +
+                "VALUES (1, 1, 1000000, 5000000, 86400000, 1, 12345, 'EXPIRATION_ONLY')"
+        )
+        db.close()
+
+        // 2. Run migration 5 -> 6
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v5",
+            6,
+            true,
+            StayFocusedDatabase.MIGRATION_5_6
+        )
+
+        // 3. Verify strict_sessions data survived and new columns exist with correct values
+        val sessionCursor = db.query(
+            "SELECT id, profileId, startTime, targetEndTime, isActive, startElapsedRealtime, " +
+                "accumulatedMonotonicMs, lastElapsedRealtime, lastWallTime, bootCount, delayedUnlockStartAccumulatedMs, isScheduled " +
+                "FROM strict_sessions WHERE id = 1"
+        )
+        assertTrue(sessionCursor.moveToFirst())
+        assertEquals(1L, sessionCursor.getLong(0))
+        assertEquals(1L, sessionCursor.getLong(1))
+        assertEquals(1000000L, sessionCursor.getLong(2))
+        assertEquals(5000000L, sessionCursor.getLong(3))
+        assertEquals(1, sessionCursor.getInt(4))
+        assertEquals(12345L, sessionCursor.getLong(5))
+        assertTrue("accumulatedMonotonicMs should be non-negative", sessionCursor.getLong(6) >= 0L)
+        assertEquals(12345L, sessionCursor.getLong(7))
+        assertTrue("lastWallTime should be populated by migration", sessionCursor.getLong(8) > 0L)
+        assertEquals(-1, sessionCursor.getInt(9))
+        assertTrue("delayedUnlockStartAccumulatedMs should be null by default", sessionCursor.isNull(10))
+        assertEquals(0, sessionCursor.getInt(11))
+        sessionCursor.close()
+    }
 }
 

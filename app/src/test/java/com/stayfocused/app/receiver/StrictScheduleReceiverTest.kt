@@ -239,12 +239,12 @@ class StrictScheduleReceiverTest {
     }
 
     @Test
-    fun reconcileSchedules_afterReboot_deactivatesGracefullyAtTargetEndTime() = runBlocking {
-        // Active multi-day session created before reboot
+    fun reconcileSchedules_afterReboot_clockForward_sessionRemainsActive() = runBlocking {
+        // Active multi-day session created before reboot (7 days duration)
         val startTime = 1000_000L
-        val targetEndTime = startTime + 7 * 24 * 3600_000L // 7 days
-        // BootCompletedReceiver reset startElapsedRealtime to -1L on reboot
-        val startElapsedRealtime = -1L
+        val durationMs = 7 * 24 * 3600_000L
+        val targetEndTime = startTime + durationMs
+        val startElapsedRealtime = 50_000L
 
         db.strictSessionDao().insertSession(
             StrictSessionEntity(
@@ -254,14 +254,18 @@ class StrictScheduleReceiverTest {
                 targetEndTime = targetEndTime,
                 startElapsedRealtime = startElapsedRealtime,
                 deactivationChallenge = "EXPIRATION_ONLY",
-                isActive = true
+                isActive = true,
+                accumulatedMonotonicMs = 0L,
+                lastElapsedRealtime = startElapsedRealtime,
+                lastWallTime = startTime,
+                bootCount = 1
             )
         )
 
-        // Wall-clock reaches target end time 7 days later, and phone has only been awake for 2 hours on this boot
-        val nowEpochMs = targetEndTime + 60_000L
+        // Wall-clock reaches target end time 7 days later, but phone has only been awake for 2 hours on this boot
+        val spoofedEpochMs = targetEndTime + 60_000L
         val nowElapsed = 2 * 3600_000L
-        val nowZdt = ZonedDateTime.of(
+        val spoofedZdt = ZonedDateTime.of(
             LocalDate.of(2026, 10, 12),
             LocalTime.of(10, 1),
             ZoneId.of("UTC")
@@ -270,17 +274,31 @@ class StrictScheduleReceiverTest {
         receiver.reconcileSchedules(
             context = context,
             database = db,
-            nowEpochMs = nowEpochMs,
-            nowZdt = nowZdt,
+            nowEpochMs = spoofedEpochMs,
+            nowZdt = spoofedZdt,
             nowElapsedRealtime = nowElapsed
         )
 
-        // Session must deactivate gracefully without false clock tamper detection
+        // Session must STILL be active because only 2 hours elapsed out of 7 days!
         val activeSessionAfter = db.strictSessionDao().getActiveStrictSessionSync()
-        assertNull(activeSessionAfter)
+        assertNotNull("Session must remain active despite 7-day wall-clock jump", activeSessionAfter)
+        assertTrue(activeSessionAfter?.isActive == true)
+
+        // Now advance monotonic clock to full 7 days + 1s from previous checkpoint
+        val fullElapsed = nowElapsed + durationMs + 1000L
+        receiver.reconcileSchedules(
+            context = context,
+            database = db,
+            nowEpochMs = spoofedEpochMs + durationMs,
+            nowZdt = spoofedZdt.plusDays(7),
+            nowElapsedRealtime = fullElapsed
+        )
+
+        // Now that full monotonic duration has elapsed, session concludes
+        val activeSessionFinal = db.strictSessionDao().getActiveStrictSessionSync()
+        assertNull("Session must deactivate once full duration has elapsed", activeSessionFinal)
 
         val logs = db.failsafeLogDao().getAllLogsSync()
-        assertTrue(logs.any { it.eventType == "SCHEDULE_STRICT_DEACTIVATED" })
-        assertTrue(logs.none { it.eventType == "CLOCK_TAMPER_DETECTED" })
+        assertTrue(logs.any { it.eventType == "STRICT_SESSION_EXPIRED" })
     }
 }

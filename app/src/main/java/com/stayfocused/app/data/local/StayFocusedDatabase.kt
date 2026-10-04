@@ -57,7 +57,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         BreakSessionEntity::class,
         FailsafeLogEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -120,6 +120,30 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `accumulatedMonotonicMs` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `lastElapsedRealtime` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `lastWallTime` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `bootCount` INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `delayedUnlockStartAccumulatedMs` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `strict_sessions` ADD COLUMN `isScheduled` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """
+                    UPDATE `strict_sessions`
+                    SET `accumulatedMonotonicMs` = CASE
+                        WHEN `isActive` = 1 AND `targetEndTime` > `startTime` THEN MAX(0, MIN(`targetEndTime` - `startTime`, (strftime('%s', 'now') * 1000) - `startTime`))
+                        ELSE 0
+                    END,
+                    `lastElapsedRealtime` = CASE WHEN `startElapsedRealtime` > 0 THEN `startElapsedRealtime` ELSE 0 END,
+                    `lastWallTime` = (strftime('%s', 'now') * 1000),
+                    `bootCount` = -1
+                    WHERE `isActive` = 1
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: StayFocusedDatabase? = null
 
@@ -130,7 +154,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                 INSTANCE = instance
                 instance

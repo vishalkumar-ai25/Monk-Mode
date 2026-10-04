@@ -49,10 +49,22 @@ class BootCompletedReceiver : BroadcastReceiver() {
                             )
                         )
 
-                        // Reconcile active strict sessions across reboot (reset monotonic uptime counter)
+                        // Reconcile active strict sessions across reboot using TrustedClock
                         val active = db.strictSessionDao().getActiveStrictSessionSync()
                         if (active != null && active.isActive) {
-                            db.strictSessionDao().updateSession(active.copy(startElapsedRealtime = -1L))
+                            val snapshot = com.stayfocused.app.strict.SystemClockSnapshotProvider.getSnapshot(context)
+                            val trustedClock = com.stayfocused.app.strict.TrustedClock()
+                            val updated = trustedClock.checkpoint(
+                                session = active,
+                                currentSnapshot = snapshot
+                            )
+                            db.strictSessionDao().checkpointMonotonicClock(
+                                id = updated.id,
+                                accumulatedMs = updated.accumulatedMonotonicMs,
+                                lastElapsed = updated.lastElapsedRealtime,
+                                lastWall = updated.lastWallTime,
+                                bootCount = updated.bootCount
+                            )
                         }
 
                         // Immediately reconcile active strict schedules and arm if inside scheduled window

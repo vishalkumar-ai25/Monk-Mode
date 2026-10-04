@@ -28,6 +28,22 @@ interface StrictSessionDao {
     @Update
     suspend fun updateSession(entity: StrictSessionEntity)
 
+    @Query("""
+        UPDATE strict_sessions 
+        SET accumulatedMonotonicMs = :accumulatedMs, 
+            lastElapsedRealtime = :lastElapsed, 
+            lastWallTime = :lastWall, 
+            bootCount = :bootCount 
+        WHERE id = :id AND isActive = 1
+    """)
+    suspend fun checkpointMonotonicClock(
+        id: Long,
+        accumulatedMs: Long,
+        lastElapsed: Long,
+        lastWall: Long,
+        bootCount: Int
+    )
+
     @Query("UPDATE strict_sessions SET isActive = 0 WHERE isActive = 1")
     suspend fun deactivateAllSessions()
 

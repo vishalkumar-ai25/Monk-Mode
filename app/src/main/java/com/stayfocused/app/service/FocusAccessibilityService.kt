@@ -68,6 +68,8 @@ class FocusAccessibilityService : AccessibilityService() {
     @Volatile var cachedAppLimits: Map<String, AppLimitSnapshot> = emptyMap()
     @Volatile var isStrictModeActive: Boolean = false
     @Volatile var cachedStrictEndTimeMs: Long = 0L
+    @Volatile var cachedActiveStrictSession: com.stayfocused.app.data.local.entities.StrictSessionEntity? = null
+    var trustedClock: com.stayfocused.app.strict.TrustedClock = com.stayfocused.app.strict.TrustedClock()
     @Volatile var cachedBreakEndTimeMs: Long = 0L
 
     var isBreakActive: Boolean
@@ -158,7 +160,13 @@ class FocusAccessibilityService : AccessibilityService() {
         // ─────────────────────────────────────────────────────────────────────
 
 
-        val isStrictActive = isStrictModeActive && (cachedStrictEndTimeMs == 0L || System.currentTimeMillis() < cachedStrictEndTimeMs)
+        val activeSession = cachedActiveStrictSession
+        val isStrictActive = if (activeSession != null && activeSession.isActive) {
+            val snapshot = com.stayfocused.app.strict.SystemClockSnapshotProvider.getSnapshot(applicationContext)
+            trustedClock.isSessionActive(activeSession, snapshot)
+        } else {
+            isStrictModeActive && (cachedStrictEndTimeMs == 0L || System.currentTimeMillis() < cachedStrictEndTimeMs)
+        }
         val isSettingsOrInstaller = packageRegistry?.isSettingsOrInstaller(target) ?: false
         val isTargetSettingsOrInstaller = isSettingsOrInstaller ||
                 SettingsTamperInspector.SETTINGS_PACKAGES.contains(target.lowercase()) ||
@@ -359,6 +367,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 db.strictSessionDao().getActiveStrictSession()
                     .catch { e -> Log.e(TAG, "Error observing strict sessions", e) }
                     .collectLatest { session ->
+                        cachedActiveStrictSession = session
                         isStrictModeActive = session != null && session.isActive
                         cachedStrictEndTimeMs = session?.targetEndTime ?: 0L
                     }

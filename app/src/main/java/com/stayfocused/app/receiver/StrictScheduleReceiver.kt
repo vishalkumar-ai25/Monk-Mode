@@ -68,13 +68,19 @@ class StrictScheduleReceiver(
             val challenge = engine.getStrictestChallenge(activeSchedules.map { it.deactivationChallenge })
 
             if (activeSession == null || !activeSession.isActive) {
+                val bootCount = com.stayfocused.app.strict.SystemClockSnapshotProvider.getSnapshot(context).bootCount
                 val newSession = StrictSessionEntity(
                     profileId = primarySchedule.profileId,
                     startTime = nowEpochMs,
                     targetEndTime = latestEndTime,
                     startElapsedRealtime = nowElapsedRealtime,
                     deactivationChallenge = challenge,
-                    isActive = true
+                    isActive = true,
+                    accumulatedMonotonicMs = 0L,
+                    lastElapsedRealtime = nowElapsedRealtime,
+                    lastWallTime = nowEpochMs,
+                    bootCount = bootCount,
+                    isScheduled = true
                 )
                 sessionDao.insertSession(newSession)
                 profileDao.switchToProfile(primarySchedule.profileId)
@@ -102,38 +108,72 @@ class StrictScheduleReceiver(
             }
         } else {
             if (activeSession != null && activeSession.isActive) {
-                // If scheduled session reached its end time and no delayed unlock is pending
-                if (nowEpochMs >= activeSession.targetEndTime && activeSession.delayedUnlockRequestTime == null) {
-                    // Anti-tamper check: if continuously running on the same boot (startElapsedRealtime > 0L),
-                    // ensure hardware elapsed monotonic time matches or exceeds the expected wall-clock duration.
-                    // Note: If device rebooted, BootCompletedReceiver resets startElapsedRealtime to -1L.
-                    val isContinuouslyRunning = activeSession.startElapsedRealtime > 0L && nowElapsedRealtime >= activeSession.startElapsedRealtime
-                    val expectedDurationMs = activeSession.targetEndTime - activeSession.startTime
-                    val actualElapsedMs = nowElapsedRealtime - activeSession.startElapsedRealtime
+                val bootCount = com.stayfocused.app.strict.SystemClockSnapshotProvider.getSnapshot(context).bootCount
+                val snapshot = com.stayfocused.app.strict.ClockSnapshot(
+                    elapsedRealtimeMs = nowElapsedRealtime,
+                    wallTimeMs = nowEpochMs,
+                    bootCount = bootCount
+                )
+                val trustedClock = com.stayfocused.app.strict.TrustedClock()
 
-                    if (isContinuouslyRunning && actualElapsedMs < expectedDurationMs) {
-                        failsafeLogDao.insertLog(
-                            FailsafeLogEntity(
-                                timestamp = nowEpochMs,
-                                eventType = "CLOCK_TAMPER_DETECTED",
-                                details = "Wall clock exceeded targetEndTime but hardware elapsed ($actualElapsedMs ms) < expected ($expectedDurationMs ms). Suppression maintained.",
-                                success = false
-                            )
-                        )
-                        Log.w(TAG, "Clock roll-forward detected (hardware elapsed $actualElapsedMs < expected $expectedDurationMs); ignoring deactivation request.")
-                        return
+                // Checkpoint monotonic progress and detect same-boot clock tamper
+                var clockTampered = false
+                var tamperWallDiff = 0L
+                var tamperMonoDiff = 0L
+                val checkpointed = trustedClock.checkpoint(
+                    session = activeSession,
+                    currentSnapshot = snapshot,
+                    onClockTamper = { wallDiff, monoDiff ->
+                        clockTampered = true
+                        tamperWallDiff = wallDiff
+                        tamperMonoDiff = monoDiff
                     }
+                )
+                sessionDao.checkpointMonotonicClock(
+                    id = checkpointed.id,
+                    accumulatedMs = checkpointed.accumulatedMonotonicMs,
+                    lastElapsed = checkpointed.lastElapsedRealtime,
+                    lastWall = checkpointed.lastWallTime,
+                    bootCount = checkpointed.bootCount
+                )
 
+                if (clockTampered) {
+                    failsafeLogDao.insertLog(
+                        FailsafeLogEntity(
+                            timestamp = nowEpochMs,
+                            eventType = "CLOCK_TAMPER_DETECTED",
+                            details = "Clock tamper detected: wall delta ($tamperWallDiff ms) disagreed with monotonic delta ($tamperMonoDiff ms).",
+                            success = false
+                        )
+                    )
+                    Log.w(TAG, "Clock tamper detected (wall delta $tamperWallDiff vs mono $tamperMonoDiff ms)")
+                    Log.w(TAG, "Clock roll-forward detected; deactivation suppressed.")
+                    return
+                }
+
+                // Scheduled calendar window deactivates when target time reached (and not tampered).
+                // Manual duration sessions ONLY deactivate when monotonic elapsed duration has fully elapsed.
+                val isDeactivationAllowed = if (activeSession.isScheduled) {
+                    nowEpochMs >= activeSession.targetEndTime
+                } else {
+                    !trustedClock.isSessionActive(activeSession, snapshot)
+                }
+
+                if (isDeactivationAllowed && activeSession.delayedUnlockRequestTime == null) {
                     sessionDao.deactivateAllSessions()
                     failsafeLogDao.insertLog(
                         FailsafeLogEntity(
                             timestamp = nowEpochMs,
-                            eventType = "SCHEDULE_STRICT_DEACTIVATED",
-                            details = "Strict session concluded gracefully as scheduled window elapsed",
+                            eventType = if (activeSession.isScheduled) "SCHEDULE_STRICT_DEACTIVATED" else "STRICT_SESSION_EXPIRED",
+                            details = if (activeSession.isScheduled) {
+                                "Strict session concluded gracefully as scheduled window elapsed"
+                            } else {
+                                "Strict session concluded as monotonic duration fully elapsed"
+                            },
                             success = true
                         )
                     )
-                    Log.i(TAG, "Deactivated strict session as scheduled window elapsed")
+                    Log.i(TAG, "Deactivated strict session (isScheduled=${activeSession.isScheduled})")
                 }
             }
         }
