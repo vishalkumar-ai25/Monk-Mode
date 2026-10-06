@@ -186,19 +186,47 @@ class FocusAccessibilityService : AccessibilityService() {
             try {
                 val gathered = mutableListOf<String>()
                 gathered.addAll(windowTexts)
-                fun collectTexts(node: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
-                    if (node == null || depth > 4 || gathered.size >= 25) return
-                    node.text?.toString()?.takeIf { it.isNotBlank() }?.let { gathered.add(it) }
-                    node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { gathered.add(it) }
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                        node.paneTitle?.toString()?.takeIf { it.isNotBlank() }?.let { gathered.add(it) }
-                    }
-                    for (i in 0 until node.childCount) {
-                        if (gathered.size >= 25) break
-                        collectTexts(node.getChild(i), depth + 1)
+                val selfTokens = tamperInspector.selfAppNames + tamperInspector.selfPackageName.lowercase()
+                var foundSelf = windowTexts.any { wt ->
+                    val lower = wt.lowercase()
+                    selfTokens.any { token -> lower.contains(token) }
+                }
+
+                fun checkAndAdd(text: CharSequence?) {
+                    if (text == null) return
+                    val str = text.toString().trim()
+                    if (str.isNotEmpty()) {
+                        gathered.add(str)
+                        val lower = str.lowercase()
+                        if (selfTokens.any { token -> lower.contains(token) }) {
+                            foundSelf = true
+                        }
                     }
                 }
-                collectTexts(rootInActiveWindow, 0)
+
+                var visitedNodes = 0
+                fun collectTexts(node: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
+                    if (node == null || foundSelf || depth > 12 || gathered.size >= 40 || visitedNodes >= 40) return
+                    visitedNodes++
+                    checkAndAdd(node.text)
+                    if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
+                    checkAndAdd(node.contentDescription)
+                    if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                        checkAndAdd(node.paneTitle)
+                        if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
+                    }
+                    val childCount = node.childCount
+                    for (i in 0 until childCount) {
+                        if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) break
+                        val child = node.getChild(i)
+                        collectTexts(child, depth + 1)
+                    }
+                }
+
+                if (!foundSelf) {
+                    collectTexts(rootInActiveWindow, 0)
+                }
                 gathered
             } catch (_: Throwable) {
                 windowTexts
@@ -229,13 +257,17 @@ class FocusAccessibilityService : AccessibilityService() {
                 is SettingsTamperInspector.TamperDecision.BlockTamper -> {
                     foregroundMonitorJob?.cancel()
                     Log.w(TAG, "Blocking tamper attempt in $target ($className): ${tamperDecision.reason}")
+                    performGlobalAction(GLOBAL_ACTION_BACK)
                     performGlobalAction(GLOBAL_ACTION_HOME)
                     val manager = overlayManager
                     val canDraw = manager?.canDrawOverlays() ?: false
                     if (manager != null && canDraw) {
                         manager.showOverlay(
                             reason = BlockReason.SettingsTamper(tamperDecision.reason),
-                            onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+                            onReturnHome = {
+                                performGlobalAction(GLOBAL_ACTION_BACK)
+                                performGlobalAction(GLOBAL_ACTION_HOME)
+                            }
                         )
                     }
                     return

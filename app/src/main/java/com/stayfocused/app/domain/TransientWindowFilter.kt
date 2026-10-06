@@ -30,7 +30,7 @@ class TransientWindowFilter(
          * System UI packages that produce window events for non-app overlays
          * (notification shade, volume panel, recents, quick-settings, etc.).
          */
-        private val SYSTEM_UI_PACKAGES = setOf(
+        val SYSTEM_UI_PACKAGES = setOf(
             "com.android.systemui",
             "com.samsung.android.systemui",  // Samsung OneUI
             "com.miui.systemui",             // MIUI / Xiaomi
@@ -85,7 +85,7 @@ class TransientWindowFilter(
         return cachedImePackages
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    fun isIme(pkg: String): Boolean = pkg in resolvedImePackages()
 
     /**
      * Returns `true` when the [pkg]/[className] pair represents a transient system

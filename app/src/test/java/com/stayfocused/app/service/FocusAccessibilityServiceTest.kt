@@ -368,4 +368,63 @@ class FocusAccessibilityServiceTest {
         // GLOBAL_ACTION_HOME should NOT be called immediately while overlay is showing (avoids race condition)
         verify(exactly = 0) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) }
     }
+
+    /**
+     * Verifies that settings tamper attempts targeting Monk Mode immediately trigger
+     * performGlobalAction(GLOBAL_ACTION_BACK) to pop the fragment and
+     * performGlobalAction(GLOBAL_ACTION_HOME) to return to launcher.
+     */
+    @Test
+    fun testAccessibilitySettingsTamperTriggersBackAndHome() {
+        service.isStrictModeActive = true
+        every { service.performGlobalAction(any()) } returns true
+
+        service.handleWindowEvent(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Monk Mode", "Use Monk Mode")
+        )
+
+        verify(atLeast = 1) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+        verify(atLeast = 1) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.SettingsTamper },
+                any()
+            )
+        }
+    }
+
+    /**
+     * Verifies that navigating into Sound settings (which contains "Accessibility volume")
+     * is allowed and does NOT trigger BACK or HOME or show overlay.
+     */
+    @Test
+    fun testSoundSettingsAllowedDoesNotTriggerBackOrHome() {
+        service.isStrictModeActive = true
+        every { service.performGlobalAction(any()) } returns true
+
+        service.handleWindowEvent(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Sound & vibration", "Media volume", "Call volume", "Accessibility volume")
+        )
+
+        verify(exactly = 0) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+        verify(exactly = 0) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+        verify(exactly = 0) {
+            mockOverlayManager.showOverlay(any(), any())
+        }
+        verify(atLeast = 1) {
+            mockOverlayManager.hideOverlay()
+        }
+    }
 }

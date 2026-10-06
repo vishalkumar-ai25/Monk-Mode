@@ -331,6 +331,138 @@ class SettingsTamperInspectorTest {
         assertTrue("SubSettings with turn off action must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
     }
 
+    @Test
+    fun testSoundSettingsWithAccessibilityVolumeAllowed() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Sound & vibration", "Media volume", "Call volume", "Accessibility volume"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Sound settings with Accessibility volume slider must be allowed", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testDisplaySettingsWithAccessibilityOptionsAllowed() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Display & brightness", "Dark mode", "High contrast text"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Display settings with high contrast text must be allowed", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testHotspotSettingsWithStopActionAllowed() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Personal hotspot", "Stop personal hotspot"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Hotspot settings with 'Stop personal hotspot' must be allowed", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testSubSettingsAccessibilityHeaderBlocked() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Accessibility", "Downloaded apps", "Vision"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Accessibility settings header in SubSettings must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+    }
+
+    @Test
+    fun testSubSettingsDownloadedAppsReferencingMonkModeBlocked() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Downloaded apps", "Monk Mode", "On"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Downloaded apps listing Monk Mode must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+    }
+
+    @Test
+    fun testMonkModeAccessibilityPageBlocked() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Monk Mode", "Use Monk Mode", "Allow Monk Mode to have full control"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Monk Mode accessibility detail page must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+    }
+
+    @Test
+    fun testMonkModeStopDialogBlocked() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.coui.appcompat.dialog.COUIDialog",
+            windowTexts = listOf("Stop Monk Mode?", "If you turn off Monk Mode, the service will stop.", "Cancel", "Stop"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Monk Mode deactivation dialog must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+    }
+
+    @Test
+    fun testMonkModeRuntimePermissionAllowed() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.permissioncontroller",
+            className = "com.android.permissioncontroller.permission.ui.GrantPermissionsActivity",
+            windowTexts = listOf("Allow Monk Mode to send you notifications?", "Don't allow", "Allow"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Monk Mode runtime permission request must be allowed", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testAccessibilityShortcutSettingsBlocked() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.accessibility.AccessibilityShortcutPreferenceFragment",
+            windowTexts = emptyList(),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Accessibility shortcut fragment must be blocked by class name alone", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+    }
+
+    @Test
+    fun testRootSettingsHomepageAllowedWhenAccessibilityItemPresent() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.homepage.SettingsHomepageActivity",
+            windowTexts = listOf("Settings", "Accessibility", "System"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Root settings homepage must be allowed even when Accessibility item is in view", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testSoundSettingsWithAndConjunctionAllowed() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Sounds and vibration", "Media volume", "Accessibility volume"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Sound settings with 'Sounds and vibration' must be allowed", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
     // ── Invariant Tests ────────────────────────────────────────────────────────
 
     @Test

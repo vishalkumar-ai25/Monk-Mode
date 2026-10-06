@@ -32,7 +32,10 @@ class SettingsTamperInspector(
             "com.samsung.android.app.settings",
             "com.transsion.settings",
             "com.vivo.permissionmanager",
-            "com.iqoo.secure"
+            "com.iqoo.secure",
+            "com.oplus.securitypermission",
+            "com.coloros.securitypermission",
+            "com.oplus.battery"
         )
 
         val INSTALLER_PACKAGES = setOf(
@@ -56,7 +59,24 @@ class SettingsTamperInspector(
 
         private val DEVICE_ADMIN_TOKENS = setOf("deviceadmin")
 
-        private val ACCESSIBILITY_TOKENS = setOf("accessibility")
+        private val ACCESSIBILITY_TOKENS = setOf(
+            "accessibility",
+            "accessibilitysettings",
+            "accessibilityshortcut",
+            "accessibility_shortcut",
+            "accessibilitybutton",
+            "toggleservice",
+            "toggleaccessibilityservice",
+            "accessibilitydetail"
+        )
+
+        private val ACCESSIBILITY_HEADERS = setOf(
+            "accessibility",
+            "downloaded apps",
+            "downloaded services",
+            "installed apps",
+            "installed services"
+        )
 
         private val SPECIAL_ACCESS_TOKENS = setOf(
             "specialaccess",
@@ -80,9 +100,19 @@ class SettingsTamperInspector(
             "clear data",
             "clear storage",
             "deactivate this device admin app",
-            "deactivate",
+            "deactivate admin app",
             "uninstall",
-            "turn off"
+            "stop monk mode",
+            "stop stay focused",
+            "turn off monk mode",
+            "turn off stay focused",
+            "disable monk mode",
+            "disable stay focused",
+            "use monk mode",
+            "use stay focused",
+            "stop service",
+            "stop this service",
+            "turn off service"
         )
 
         private val DANGEROUS_CATEGORIES = setOf(
@@ -135,6 +165,10 @@ class SettingsTamperInspector(
 
         // Vector 1: Package Installer (uninstallation prompt)
         if (INSTALLER_PACKAGES.contains(pkgLower)) {
+            // Self-exemption for Monk Mode runtime permission requests (e.g. POST_NOTIFICATIONS)
+            if (clsLower.contains("grantpermissions") || clsLower.contains("reviewpermissions")) {
+                return TamperDecision.Allow
+            }
             // Block package-installer uninstallation by class name or text (no self-reference needed)
             if (clsLower.contains("uninstall") || normalizedTexts.any { it.contains("uninstall") }) {
                 return TamperDecision.BlockTamper("Package uninstallation is locked during Strict Mode.")
@@ -168,7 +202,7 @@ class SettingsTamperInspector(
         if (SETTINGS_PACKAGES.contains(pkgLower) || pkgLower.endsWith(".settings") ||
             pkgLower.contains("safecenter") || pkgLower.contains("securitycenter")) {
             // 4A: Safe settings allow-list (Wi-Fi, Bluetooth, Display, Sound) takes precedence
-            if (isAllowedSettingsClass(clsLower)) {
+            if (isAllowedSettingsClass(clsLower) || (!referencesSelf && isAllowedSettingsContent(normalizedTexts))) {
                 return TamperDecision.Allow
             }
 
@@ -183,7 +217,7 @@ class SettingsTamperInspector(
                 return TamperDecision.BlockTamper("Device Admin settings are locked during Strict Mode.")
             }
 
-            // 3) Accessibility service detail
+            // 3) Accessibility service detail & shortcuts
             if (ACCESSIBILITY_TOKENS.any { clsLower.contains(it) }) {
                 return TamperDecision.BlockTamper("Accessibility settings are locked during Strict Mode.")
             }
@@ -208,7 +242,17 @@ class SettingsTamperInspector(
                 return TamperDecision.BlockTamper("Private DNS settings are locked during Strict Mode.")
             }
 
-            // 4C: Text-match fallback for generic container activities (e.g. SubSettings or dialogs)
+            // 4C: Accessibility header / category matching scoped to container/dialog activities
+            val isContainerOrDialog = clsLower.contains("subsettings") ||
+                    clsLower.contains("dialog") ||
+                    clsLower.contains("accessibility") ||
+                    clsLower.contains("preference")
+            val isAccessibilityHeader = normalizedTexts.any { it in ACCESSIBILITY_HEADERS }
+            if (isAccessibilityHeader && isContainerOrDialog && !isAllowedSettingsContent(normalizedTexts)) {
+                return TamperDecision.BlockTamper("Accessibility settings are locked during Strict Mode.")
+            }
+
+            // 4D: Text-match fallback for generic container activities (e.g. SubSettings or dialogs)
             if (referencesSelf) {
                 return TamperDecision.BlockTamper("Settings tampering targeting Monk Mode is locked during Strict Mode.")
             }
@@ -234,8 +278,27 @@ class SettingsTamperInspector(
         return TamperDecision.Allow
     }
 
+    private fun isAllowedSettingsContent(normalizedTexts: Set<String>): Boolean {
+        if (normalizedTexts.isEmpty()) return false
+        return normalizedTexts.any { text ->
+            text == "sound" || text == "sound & vibration" || text == "sounds & vibration" ||
+            text == "sound and vibration" || text == "sounds and vibration" ||
+            text == "sound & notifications" || text == "sound and notifications" ||
+            text == "volume" || text == "display" ||
+            text == "display & brightness" || text == "display and brightness" ||
+            text == "network & internet" || text == "network and internet" ||
+            text == "wi-fi" || text == "wifi" || text == "bluetooth"
+        }
+    }
+
     private fun isAllowedSettingsClass(clsLower: String): Boolean {
         if (clsLower.isEmpty()) return false
+        val isHomepage = (clsLower.contains("homepage") ||
+                clsLower.endsWith(".settings") ||
+                clsLower.endsWith(".settingsactivity") ||
+                clsLower.endsWith(".mainsettings") ||
+                clsLower.endsWith(".rootsettings")) &&
+                !clsLower.contains("subsettings")
         val isWifi = clsLower.contains("wifi") || clsLower.contains("networkprovider")
         val isBluetooth = clsLower.contains("bluetooth")
         val isDisplay = (clsLower.contains("display") ||
@@ -250,6 +313,6 @@ class SettingsTamperInspector(
                 clsLower.contains("ringtone") ||
                 clsLower.contains("audio")
 
-        return isWifi || isBluetooth || isDisplay || isSound
+        return isHomepage || isWifi || isBluetooth || isDisplay || isSound
     }
 }
