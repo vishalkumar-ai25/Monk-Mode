@@ -416,7 +416,7 @@ class SettingsTamperInspectorTest {
     }
 
     @Test
-    fun testSubSettingsDownloadedAppsReferencingMonkModeBlocked() {
+    fun testSubSettingsDownloadedAppsListingAllowedEvenWhenListingMonkMode() {
         val decision = inspector.evaluate(
             packageName = "com.android.settings",
             className = "com.android.settings.SubSettings",
@@ -424,7 +424,19 @@ class SettingsTamperInspectorTest {
             isStrictModeActive = true,
             antiTamperEnabled = true
         )
-        assertTrue("Downloaded apps listing Monk Mode must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+        assertTrue("Downloaded apps listing Monk Mode must be allowed so user can access third-party services", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testSubSettingsDownloadedAppsWithDangerousActionBlocked() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Downloaded apps", "Monk Mode", "Use Monk Mode"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Downloaded apps with dangerous action targeting Monk Mode must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
     }
 
     @Test

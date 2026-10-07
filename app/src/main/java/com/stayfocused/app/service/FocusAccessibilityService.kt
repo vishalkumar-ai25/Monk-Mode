@@ -324,10 +324,34 @@ class FocusAccessibilityService : AccessibilityService() {
                     }
                 }
 
-                if (!foundSelf) {
-                    val root = rootInActiveWindow
-                    if (root != null) {
-                        // Fast indexed text lookup for Monk Mode tokens
+                val root = rootInActiveWindow
+                if (root != null) {
+                    // Depth-bounded traversal collecting headers, pane titles, and window items
+                    var visitedNodes = 0
+                    fun collectTexts(node: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
+                        if (node == null || depth > 12 || gathered.size >= 40 || visitedNodes >= 40) return
+                        visitedNodes++
+                        checkAndAdd(node.text)
+                        checkAndAdd(node.contentDescription)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            checkAndAdd(node.paneTitle)
+                        }
+                        val childCount = node.childCount
+                        for (i in 0 until childCount) {
+                            if (gathered.size >= 40 || visitedNodes >= 40) break
+                            try {
+                                val child = node.getChild(i)
+                                collectTexts(child, depth + 1)
+                            } catch (_: Throwable) {
+                                continue
+                            }
+                        }
+                    }
+
+                    collectTexts(root, 0)
+
+                    // Fast indexed text lookup for Monk Mode tokens if not encountered in traversal
+                    if (!foundSelf) {
                         for (token in selfTokens) {
                             try {
                                 val matchedNodes = root.findAccessibilityNodeInfosByText(token)
@@ -337,35 +361,6 @@ class FocusAccessibilityService : AccessibilityService() {
                                     break
                                 }
                             } catch (_: Throwable) {}
-                        }
-
-                        // Depth-bounded traversal fallback
-                        var visitedNodes = 0
-                        fun collectTexts(node: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
-                            if (node == null || foundSelf || depth > 12 || gathered.size >= 40 || visitedNodes >= 40) return
-                            visitedNodes++
-                            checkAndAdd(node.text)
-                            if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
-                            checkAndAdd(node.contentDescription)
-                            if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                                checkAndAdd(node.paneTitle)
-                                if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
-                            }
-                            val childCount = node.childCount
-                            for (i in 0 until childCount) {
-                                if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) break
-                                try {
-                                    val child = node.getChild(i)
-                                    collectTexts(child, depth + 1)
-                                } catch (_: Throwable) {
-                                    break
-                                }
-                            }
-                        }
-
-                        if (!foundSelf) {
-                            collectTexts(root, 0)
                         }
                     }
                 }

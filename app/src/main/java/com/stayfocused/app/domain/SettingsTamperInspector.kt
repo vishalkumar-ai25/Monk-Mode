@@ -80,12 +80,20 @@ class SettingsTamperInspector(
             "accessibilitydetail"
         )
 
-        private val ACCESSIBILITY_HEADERS = setOf(
-            "accessibility",
+        /**
+         * Accessibility listing headers — screens that show a list of installed services
+         * (including Monk Mode) without providing deactivation toggle switches.
+         * These must remain accessible so users can configure third-party services.
+         */
+        private val ACCESSIBILITY_LISTING_HEADERS = setOf(
             "downloaded apps",
             "downloaded services",
             "installed apps",
             "installed services"
+        )
+
+        private val ACCESSIBILITY_HEADERS = setOf(
+            "accessibility"
         )
 
         private val SPECIAL_ACCESS_TOKENS = setOf(
@@ -257,6 +265,21 @@ class SettingsTamperInspector(
                 return TamperDecision.BlockTamper("Private DNS settings are locked during Strict Mode.")
             }
 
+            val isDangerousAction = normalizedTexts.any { text ->
+                DANGEROUS_ACTIONS.any { action -> text.contains(action) }
+            }
+
+            // Accessibility listing screens (e.g. "Downloaded apps", "Installed services")
+            // display a list of all installed accessibility services (including Monk Mode).
+            // These list views contain no deactivation toggle switches and must remain accessible
+            // so users can navigate to and configure third-party services (StayFree, Stay Focused).
+            val isAccessibilityListing = normalizedTexts.any { text ->
+                ACCESSIBILITY_LISTING_HEADERS.any { header -> text.contains(header) }
+            }
+            if (isAccessibilityListing && !isDangerousAction) {
+                return TamperDecision.Allow
+            }
+
             // 4C: Accessibility header / category matching scoped to Monk Mode detail
             val isContainerOrDialog = clsLower.contains("subsettings") ||
                     clsLower.contains("dialog") ||
@@ -272,9 +295,6 @@ class SettingsTamperInspector(
                 return TamperDecision.BlockTamper("Settings tampering targeting Monk Mode is locked during Strict Mode.")
             }
 
-            val isDangerousAction = normalizedTexts.any { text ->
-                DANGEROUS_ACTIONS.any { action -> text.contains(action) }
-            }
             if (isDangerousAction) {
                 return TamperDecision.BlockTamper("Settings tampering action is locked during Strict Mode.")
             }
