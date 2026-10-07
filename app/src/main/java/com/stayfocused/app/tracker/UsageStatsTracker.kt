@@ -243,12 +243,15 @@ class UsageStatsTracker(
                     launches = 0,
                     resetTimestamp = System.currentTimeMillis()
                 )
-            } else if (actualUsageMs != limit.currentDayUsageMs) {
-                appLimitDao.updateUsageAndLaunches(
-                    packageName = limit.packageName,
-                    usageMs = actualUsageMs,
-                    launches = limit.currentDayLaunches
-                )
+            } else {
+                val reconciledUsageMs = maxOf(limit.currentDayUsageMs, actualUsageMs)
+                if (reconciledUsageMs != limit.currentDayUsageMs) {
+                    appLimitDao.updateUsageAndLaunches(
+                        packageName = limit.packageName,
+                        usageMs = reconciledUsageMs,
+                        launches = limit.currentDayLaunches
+                    )
+                }
             }
         }
     }

@@ -8,7 +8,7 @@ import com.stayfocused.app.BuildConfig
  */
 class SettingsTamperInspector(
     val selfPackageName: String = "com.stayfocused.app",
-    val selfAppNames: Set<String> = setOf("monk mode", "stay focused", "stayfocused")
+    val selfAppNames: Set<String> = setOf("monk mode", "monkmode")
 ) {
 
     sealed class TamperDecision {
@@ -59,12 +59,22 @@ class SettingsTamperInspector(
 
         private val DEVICE_ADMIN_TOKENS = setOf("deviceadmin")
 
-        private val ACCESSIBILITY_TOKENS = setOf(
-            "accessibility",
-            "accessibilitysettings",
+        /**
+         * Accessibility shortcut tokens — blocked because hardware shortcuts
+         * can disable accessibility services without entering the detail page.
+         */
+        private val ACCESSIBILITY_SHORTCUT_TOKENS = setOf(
             "accessibilityshortcut",
             "accessibility_shortcut",
-            "accessibilitybutton",
+            "accessibilitybutton"
+        )
+
+        /**
+         * Accessibility service-detail tokens — only blocked when window text
+         * references Monk Mode (self). This allows users to configure StayFree,
+         * Stay Focused, and other apps' accessibility services during Strict Mode.
+         */
+        private val ACCESSIBILITY_DETAIL_TOKENS = setOf(
             "toggleservice",
             "toggleaccessibilityservice",
             "accessibilitydetail"
@@ -103,13 +113,9 @@ class SettingsTamperInspector(
             "deactivate admin app",
             "uninstall",
             "stop monk mode",
-            "stop stay focused",
             "turn off monk mode",
-            "turn off stay focused",
             "disable monk mode",
-            "disable stay focused",
             "use monk mode",
-            "use stay focused",
             "stop service",
             "stop this service",
             "turn off service"
@@ -206,50 +212,59 @@ class SettingsTamperInspector(
                 return TamperDecision.Allow
             }
 
-            // 4B: Deterministic blocking by CLASS NAME alone (no text match required)
+            // 4B: Deterministic blocking by CLASS NAME alone
             // 1) App details
             if (APP_DETAILS_TOKENS.any { clsLower.contains(it) }) {
                 return TamperDecision.BlockTamper("App details settings are locked during Strict Mode.")
             }
 
-            // 2) Device Admin
+            // 2) Device Admin (always locked during Strict Mode)
             if (DEVICE_ADMIN_TOKENS.any { clsLower.contains(it) }) {
                 return TamperDecision.BlockTamper("Device Admin settings are locked during Strict Mode.")
             }
 
-            // 3) Accessibility service detail & shortcuts
-            if (ACCESSIBILITY_TOKENS.any { clsLower.contains(it) }) {
-                return TamperDecision.BlockTamper("Accessibility settings are locked during Strict Mode.")
+            // 3) Accessibility shortcuts (hardware shortcut bypass prevention)
+            if (ACCESSIBILITY_SHORTCUT_TOKENS.any { clsLower.contains(it) }) {
+                return TamperDecision.BlockTamper("Accessibility shortcut settings are locked during Strict Mode.")
             }
 
-            // 4) Special app access
+            // 4) Accessibility service detail (only block when targeting Monk Mode)
+            if (ACCESSIBILITY_DETAIL_TOKENS.any { clsLower.contains(it) }) {
+                if (referencesSelf) {
+                    return TamperDecision.BlockTamper("Accessibility settings targeting Monk Mode are locked during Strict Mode.")
+                }
+                // Allow configuring third-party accessibility services (StayFree, Stay Focused, etc.)
+                return TamperDecision.Allow
+            }
+
+            // 5) Special app access
             if (SPECIAL_ACCESS_TOKENS.any { clsLower.contains(it) }) {
                 return TamperDecision.BlockTamper("Special app access settings are locked during Strict Mode.")
             }
 
-            // 5) Date & time settings
+            // 6) Date & time settings
             if (DATE_TIME_TOKENS.any { clsLower.contains(it) }) {
                 return TamperDecision.BlockTamper("Date and time settings are locked during Strict Mode.")
             }
 
-            // 6) VPN settings
+            // 7) VPN settings
             if (clsLower.contains("vpnsettings")) {
                 return TamperDecision.BlockTamper("VPN settings are locked during Strict Mode.")
             }
 
-            // 7) Private DNS settings
+            // 8) Private DNS settings
             if (PRIVATE_DNS_TOKENS.any { clsLower.contains(it) }) {
                 return TamperDecision.BlockTamper("Private DNS settings are locked during Strict Mode.")
             }
 
-            // 4C: Accessibility header / category matching scoped to container/dialog activities
+            // 4C: Accessibility header / category matching scoped to Monk Mode detail
             val isContainerOrDialog = clsLower.contains("subsettings") ||
                     clsLower.contains("dialog") ||
                     clsLower.contains("accessibility") ||
                     clsLower.contains("preference")
             val isAccessibilityHeader = normalizedTexts.any { it in ACCESSIBILITY_HEADERS }
-            if (isAccessibilityHeader && isContainerOrDialog && !isAllowedSettingsContent(normalizedTexts)) {
-                return TamperDecision.BlockTamper("Accessibility settings are locked during Strict Mode.")
+            if (isAccessibilityHeader && isContainerOrDialog && referencesSelf && !isAllowedSettingsContent(normalizedTexts)) {
+                return TamperDecision.BlockTamper("Accessibility settings targeting Monk Mode are locked during Strict Mode.")
             }
 
             // 4D: Text-match fallback for generic container activities (e.g. SubSettings or dialogs)

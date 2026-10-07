@@ -1,6 +1,7 @@
 package com.stayfocused.app.service
 
 import android.content.Context
+import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import androidx.test.core.app.ApplicationProvider
 import com.stayfocused.app.data.local.StayFocusedDatabase
@@ -17,6 +18,7 @@ import io.mockk.clearMocks
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.spyk
 import io.mockk.verify
 import org.junit.After
@@ -50,7 +52,7 @@ class FocusAccessibilityServiceTest {
         // don't customise it get predictable, framework-free behaviour.
         service.transientFilter = TransientWindowFilter(
             imePackagesProvider = { emptySet() },
-            selfPackage = "com.stayfocused.app",
+            selfPackage = com.stayfocused.app.BuildConfig.APPLICATION_ID,
             imeCacheTtlMs = 0L
         )
     }
@@ -426,5 +428,187 @@ class FocusAccessibilityServiceTest {
         verify(atLeast = 1) {
             mockOverlayManager.hideOverlay()
         }
+    }
+
+    /**
+     * Regression test for Bug A: Verifies that navigating into StayFree accessibility
+     * settings is allowed during Strict Mode and does NOT kick the user out.
+     */
+    @Test
+    fun testStayFreeAccessibilitySettingsAllowed() {
+        service.isStrictModeActive = true
+        every { service.performGlobalAction(any()) } returns true
+
+        service.handleWindowEvent(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Downloaded apps", "StayFree", "On")
+        )
+
+        verify(exactly = 0) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+        verify(exactly = 0) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+        verify(exactly = 0) {
+            mockOverlayManager.showOverlay(any(), any())
+        }
+    }
+
+    /**
+     * Regression test for Bug A: Verifies that navigating into Play Store Stay Focused
+     * accessibility settings is allowed during Strict Mode.
+     */
+    @Test
+    fun testPlayStoreStayFocusedAccessibilitySettingsAllowed() {
+        service.isStrictModeActive = true
+        every { service.performGlobalAction(any()) } returns true
+
+        service.handleWindowEvent(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Downloaded apps", "Stay Focused", "On")
+        )
+
+        verify(exactly = 0) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+        verify(exactly = 0) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+        verify(exactly = 0) {
+            mockOverlayManager.showOverlay(any(), any())
+        }
+    }
+
+    /**
+     * Regression test for Bug B: Verifies that an app that is already over its daily limit
+     * (as reported by live usageStatsTracker query) is immediately blocked on launch.
+     */
+    @Test
+    fun testAppOverLimitBlockedImmediatelyOnLaunch() {
+        val target = "com.android.chrome"
+        service.cachedAppLimits = mapOf(
+            target to AppLimitSnapshot(
+                packageName = target,
+                appName = "Chrome",
+                dailyTimeLimitMinutes = 30,
+                currentDayUsageMs = 5 * 60 * 1000L // Stale cache in DB shows 5 mins
+            )
+        )
+        // Live tracker reports 32 minutes (over 30-min limit)
+        val mockTracker = mockk<UsageStatsTracker>(relaxed = true)
+        every { mockTracker.queryPackageUsageToday(eq(target), any(), any()) } returns 32 * 60 * 1000L
+        every { mockTracker.getStartOfToday(any(), any()) } returns System.currentTimeMillis()
+        service.usageStatsTracker = mockTracker
+        every { service.performGlobalAction(any()) } returns true
+
+        service.handleWindowEvent(
+            packageName = target,
+            className = "org.chromium.chrome.browser.ChromeTabbedActivity",
+            windowTexts = emptyList()
+        )
+
+        val onReturnHomeSlot = slot<() -> Unit>()
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.LimitReached && it.appName == "Chrome" },
+                capture(onReturnHomeSlot)
+            )
+        }
+        // User interacts with overlay: returns home
+        onReturnHomeSlot.captured.invoke()
+        verify(atLeast = 1) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+    }
+
+    @Test
+    fun testAppOverLimitBlockedFallbackToGlobalActionHomeWhenCannotDraw() {
+        every { mockOverlayManager.canDrawOverlays() } returns false
+        val target = "com.android.chrome"
+        service.cachedAppLimits = mapOf(
+            target to AppLimitSnapshot(
+                packageName = target,
+                appName = "Chrome",
+                dailyTimeLimitMinutes = 30,
+                currentDayUsageMs = 5 * 60 * 1000L
+            )
+        )
+        val mockTracker = mockk<UsageStatsTracker>(relaxed = true)
+        every { mockTracker.queryPackageUsageToday(eq(target), any(), any()) } returns 32 * 60 * 1000L
+        every { mockTracker.getStartOfToday(any(), any()) } returns System.currentTimeMillis()
+        service.usageStatsTracker = mockTracker
+        every { service.performGlobalAction(any()) } returns true
+
+        service.handleWindowEvent(
+            packageName = target,
+            className = "org.chromium.chrome.browser.ChromeTabbedActivity",
+            windowTexts = emptyList()
+        )
+
+        verify(atLeast = 1) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+        verify(exactly = 0) {
+            mockOverlayManager.showOverlay(any(), any())
+        }
+    }
+
+    @Test
+    fun testScreenOffPausesMonotonicAccumulationAndPersistsUsage() {
+        val target = "com.google.android.youtube"
+        service.cachedAppLimits = mapOf(
+            target to AppLimitSnapshot(
+                packageName = target,
+                appName = "YouTube",
+                dailyTimeLimitMinutes = 30,
+                currentDayUsageMs = 10 * 60 * 1000L
+            )
+        )
+        service.handleWindowEvent(
+            packageName = target,
+            className = "com.google.android.youtube.HomeActivity",
+            windowTexts = emptyList()
+        )
+        assertTrue("Screen should be interactive initially", service.isScreenInteractive)
+        assertEquals(target, service.currentForegroundPackage)
+
+        // Pause interaction (screen off)
+        service.setScreenInteractiveState(false)
+        assertFalse("Screen should not be interactive after screen off", service.isScreenInteractive)
+
+        // Resume interaction (screen on)
+        service.setScreenInteractiveState(true)
+        assertTrue("Screen should be interactive again after screen on", service.isScreenInteractive)
+    }
+
+    @Test
+    fun testMonkModeForegroundTransitionCommitsPreviousPackageUsage() {
+        val target = "com.google.android.youtube"
+        service.cachedAppLimits = mapOf(
+            target to AppLimitSnapshot(
+                packageName = target,
+                appName = "YouTube",
+                dailyTimeLimitMinutes = 30,
+                currentDayUsageMs = 10 * 60 * 1000L
+            )
+        )
+        service.handleWindowEvent(
+            packageName = target,
+            className = "com.google.android.youtube.HomeActivity",
+            windowTexts = emptyList()
+        )
+        assertEquals(target, service.currentForegroundPackage)
+
+        // User opens Monk Mode
+        val selfPkg = ApplicationProvider.getApplicationContext<Context>().packageName
+        service.handleWindowEvent(
+            packageName = selfPkg,
+            className = "com.stayfocused.app.ui.MainActivity",
+            windowTexts = emptyList()
+        )
+        assertEquals(selfPkg, service.currentForegroundPackage)
     }
 }

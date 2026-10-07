@@ -126,7 +126,19 @@ class SettingsTamperInspectorTest {
     }
 
     @Test
-    fun testAccessibilityBlockedByClassNameAlone() {
+    fun testAccessibilityShortcutBlockedByClassNameAlone() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.accessibility.AccessibilityShortcutPreferenceFragment",
+            windowTexts = emptyList(),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Accessibility shortcut must be blocked by class name alone", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+    }
+
+    @Test
+    fun testAccessibilityListingWithoutMonkModeAllowed() {
         val decision = inspector.evaluate(
             packageName = "com.android.settings",
             className = "com.android.settings.accessibility.AccessibilitySettings",
@@ -134,7 +146,7 @@ class SettingsTamperInspectorTest {
             isStrictModeActive = true,
             antiTamperEnabled = true
         )
-        assertTrue("Accessibility must be blocked by class name alone", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+        assertTrue("General accessibility listing must be allowed to configure third-party services", decision is SettingsTamperInspector.TamperDecision.Allow)
     }
 
     @Test
@@ -368,7 +380,7 @@ class SettingsTamperInspectorTest {
     }
 
     @Test
-    fun testSubSettingsAccessibilityHeaderBlocked() {
+    fun testSubSettingsAccessibilityHeaderAllowedWithoutMonkMode() {
         val decision = inspector.evaluate(
             packageName = "com.android.settings",
             className = "com.android.settings.SubSettings",
@@ -376,7 +388,31 @@ class SettingsTamperInspectorTest {
             isStrictModeActive = true,
             antiTamperEnabled = true
         )
-        assertTrue("Accessibility settings header in SubSettings must be blocked", decision is SettingsTamperInspector.TamperDecision.BlockTamper)
+        assertTrue("Accessibility settings header in SubSettings without Monk Mode must be allowed for third-party service navigation", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testStayFreeAccessibilityPageAllowed() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Downloaded apps", "StayFree", "On"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("StayFree accessibility page must be allowed", decision is SettingsTamperInspector.TamperDecision.Allow)
+    }
+
+    @Test
+    fun testPlayStoreStayFocusedAccessibilityPageAllowed() {
+        val decision = inspector.evaluate(
+            packageName = "com.android.settings",
+            className = "com.android.settings.SubSettings",
+            windowTexts = listOf("Downloaded apps", "Stay Focused", "On"),
+            isStrictModeActive = true,
+            antiTamperEnabled = true
+        )
+        assertTrue("Play Store Stay Focused accessibility page must be allowed", decision is SettingsTamperInspector.TamperDecision.Allow)
     }
 
     @Test

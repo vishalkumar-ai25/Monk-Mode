@@ -1,10 +1,15 @@
 package com.stayfocused.app.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.inputmethod.InputMethodManager
+import androidx.annotation.VisibleForTesting
 import com.stayfocused.app.BuildConfig
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.registry.PackageRegistry
@@ -58,6 +63,49 @@ class FocusAccessibilityService : AccessibilityService() {
     private var lastForegroundPackage: String? = null
     private var foregroundMonitorJob: kotlinx.coroutines.Job? = null
 
+    // Real-time monotonic foreground tracking fields
+    @Volatile var currentForegroundPackage: String? = null
+    @Volatile var currentForegroundStartElapsed: Long = 0L
+    @Volatile var currentForegroundBaseUsageMs: Long = 0L
+    @Volatile var isScreenInteractive: Boolean = true
+    private var screenReceiverRegistered: Boolean = false
+
+    fun setScreenInteractiveState(interactive: Boolean) {
+        isScreenInteractive = interactive
+        if (!interactive) {
+            val pkg = currentForegroundPackage
+            if (pkg != null) {
+                val elapsed = SystemClock.elapsedRealtime() - currentForegroundStartElapsed
+                if (elapsed > 0) {
+                    val total = currentForegroundBaseUsageMs + elapsed
+                    currentForegroundBaseUsageMs = total
+                    currentForegroundStartElapsed = SystemClock.elapsedRealtime()
+                    persistUsage(pkg, total)
+                }
+            }
+            foregroundMonitorJob?.cancel()
+        } else {
+            currentForegroundStartElapsed = SystemClock.elapsedRealtime()
+            val pkg = currentForegroundPackage
+            if (pkg != null) {
+                val limit = cachedAppLimits[pkg.lowercase()]
+                if (limit != null && limit.dailyTimeLimitMinutes > 0) {
+                    startForegroundMonitor(pkg, limit)
+                }
+            }
+        }
+    }
+
+    @VisibleForTesting
+    internal val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> setScreenInteractiveState(false)
+                Intent.ACTION_USER_PRESENT, Intent.ACTION_SCREEN_ON -> setScreenInteractiveState(true)
+            }
+        }
+    }
+
     // Boot grace period un-spoofable hardware check
     var isBootGracePeriodProvider: () -> Boolean = {
         com.stayfocused.app.strict.GracePeriodManager.isDefaultGracePeriodActive()
@@ -109,6 +157,17 @@ class FocusAccessibilityService : AccessibilityService() {
                 selfPackage = BuildConfig.APPLICATION_ID
             )
         }
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            registerReceiver(screenReceiver, filter)
+            screenReceiverRegistered = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not register screen receiver", e)
+        }
         observeDatabaseState()
     }
 
@@ -117,21 +176,73 @@ class FocusAccessibilityService : AccessibilityService() {
         foregroundMonitorJob?.cancel()
         serviceScope.cancel()
         overlayManager?.hideOverlay()
+        if (screenReceiverRegistered) {
+            try {
+                unregisterReceiver(screenReceiver)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error unregistering screen receiver", e)
+            }
+            screenReceiverRegistered = false
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            return
-        }
+        runCatching {
+            if (event == null) return
+            val eventType = event.eventType
+            val packageName = event.packageName?.toString() ?: return
 
-        val packageName = event.packageName?.toString() ?: return
-        val className = event.className?.toString()
-        val windowTexts = buildList {
-            event.text?.forEach { add(it.toString()) }
-            event.contentDescription?.let { add(it.toString()) }
+            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                val className = event.className?.toString()
+                val windowTexts = buildList {
+                    event.text?.forEach { add(it.toString()) }
+                    event.contentDescription?.let { add(it.toString()) }
+                }
+                handleWindowEvent(packageName, className, windowTexts)
+            } else if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                // Only inspect content changes for Settings/Installer packages to prevent event flooding on user apps
+                if (isSettingsOrInstallerPackage(packageName)) {
+                    val className = event.className?.toString()
+                    val windowTexts = buildList {
+                        event.text?.forEach { add(it.toString()) }
+                        event.contentDescription?.let { add(it.toString()) }
+                    }
+                    handleWindowEvent(packageName, className, windowTexts)
+                }
+            }
+        }.onFailure { e ->
+            Log.e(TAG, "Safely caught error in onAccessibilityEvent", e)
         }
+    }
 
-        handleWindowEvent(packageName, className, windowTexts)
+    fun isSettingsOrInstallerPackage(target: String): Boolean {
+        val lower = target.lowercase()
+        return packageRegistry?.isSettingsOrInstaller(target) == true ||
+                SettingsTamperInspector.SETTINGS_PACKAGES.contains(lower) ||
+                SettingsTamperInspector.INSTALLER_PACKAGES.contains(lower) ||
+                lower == SettingsTamperInspector.PLAY_STORE_PACKAGE ||
+                lower == SettingsTamperInspector.VPN_DIALOGS_PACKAGE ||
+                lower.endsWith(".settings") ||
+                lower.contains("safecenter") ||
+                lower.contains("securitycenter")
+    }
+
+    fun persistUsage(packageName: String, usageMs: Long) {
+        val lower = packageName.lowercase()
+        val limit = cachedAppLimits[lower] ?: return
+        cachedAppLimits = cachedAppLimits + (lower to limit.copy(currentDayUsageMs = usageMs))
+        val db = database ?: return
+        serviceScope.launch {
+            try {
+                db.appLimitDao().updateUsageAndLaunches(
+                    packageName = packageName,
+                    usageMs = usageMs,
+                    launches = limit.currentDayLaunches
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to persist usage for $packageName", e)
+            }
+        }
     }
 
     fun handlePackageChanged(packageName: String) {
@@ -145,6 +256,15 @@ class FocusAccessibilityService : AccessibilityService() {
     ) {
         val target = packageName.trim()
         if (target.isEmpty() || target.equals(applicationContext.packageName, ignoreCase = true)) {
+            val previousPkg = currentForegroundPackage
+            if (previousPkg != null && isScreenInteractive) {
+                val elapsed = SystemClock.elapsedRealtime() - currentForegroundStartElapsed
+                if (elapsed > 0) {
+                    val updatedUsage = currentForegroundBaseUsageMs + elapsed
+                    persistUsage(previousPkg, updatedUsage)
+                }
+            }
+            currentForegroundPackage = target
             foregroundMonitorJob?.cancel()
             return
         }
@@ -204,28 +324,50 @@ class FocusAccessibilityService : AccessibilityService() {
                     }
                 }
 
-                var visitedNodes = 0
-                fun collectTexts(node: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
-                    if (node == null || foundSelf || depth > 12 || gathered.size >= 40 || visitedNodes >= 40) return
-                    visitedNodes++
-                    checkAndAdd(node.text)
-                    if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
-                    checkAndAdd(node.contentDescription)
-                    if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                        checkAndAdd(node.paneTitle)
-                        if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
-                    }
-                    val childCount = node.childCount
-                    for (i in 0 until childCount) {
-                        if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) break
-                        val child = node.getChild(i)
-                        collectTexts(child, depth + 1)
-                    }
-                }
-
                 if (!foundSelf) {
-                    collectTexts(rootInActiveWindow, 0)
+                    val root = rootInActiveWindow
+                    if (root != null) {
+                        // Fast indexed text lookup for Monk Mode tokens
+                        for (token in selfTokens) {
+                            try {
+                                val matchedNodes = root.findAccessibilityNodeInfosByText(token)
+                                if (!matchedNodes.isNullOrEmpty()) {
+                                    foundSelf = true
+                                    gathered.add(token)
+                                    break
+                                }
+                            } catch (_: Throwable) {}
+                        }
+
+                        // Depth-bounded traversal fallback
+                        var visitedNodes = 0
+                        fun collectTexts(node: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
+                            if (node == null || foundSelf || depth > 12 || gathered.size >= 40 || visitedNodes >= 40) return
+                            visitedNodes++
+                            checkAndAdd(node.text)
+                            if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
+                            checkAndAdd(node.contentDescription)
+                            if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                                checkAndAdd(node.paneTitle)
+                                if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) return
+                            }
+                            val childCount = node.childCount
+                            for (i in 0 until childCount) {
+                                if (foundSelf || gathered.size >= 40 || visitedNodes >= 40) break
+                                try {
+                                    val child = node.getChild(i)
+                                    collectTexts(child, depth + 1)
+                                } catch (_: Throwable) {
+                                    break
+                                }
+                            }
+                        }
+
+                        if (!foundSelf) {
+                            collectTexts(root, 0)
+                        }
+                    }
                 }
                 gathered
             } catch (_: Throwable) {
@@ -283,11 +425,61 @@ class FocusAccessibilityService : AccessibilityService() {
 
         val isGracePeriodActive = isBootGracePeriodProvider()
         val appLimit = cachedAppLimits[target.lowercase()]
+        val nowElapsed = SystemClock.elapsedRealtime()
+
+        // Handle package transitions: commit departure usage and initialize new session
+        if (target != currentForegroundPackage) {
+            val previousPkg = currentForegroundPackage
+            if (previousPkg != null && isScreenInteractive) {
+                val elapsed = nowElapsed - currentForegroundStartElapsed
+                if (elapsed > 0) {
+                    val updatedUsage = currentForegroundBaseUsageMs + elapsed
+                    persistUsage(previousPkg, updatedUsage)
+                }
+            }
+
+            currentForegroundPackage = target
+            currentForegroundStartElapsed = nowElapsed
+
+            val dbUsage = appLimit?.currentDayUsageMs ?: 0L
+            val osUsage = if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0) {
+                usageStatsTracker?.queryPackageUsageToday(target) ?: 0L
+            } else {
+                0L
+            }
+            currentForegroundBaseUsageMs = maxOf(dbUsage, osUsage)
+        }
+
+        // Immediate launch check: if daily time limit is already exhausted, block immediately!
+        if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0) {
+            val limitMs = appLimit.dailyTimeLimitMinutes * 60 * 1000L
+            if (currentForegroundBaseUsageMs >= limitMs) {
+                foregroundMonitorJob?.cancel()
+                Log.i(TAG, "Blocking package $target on launch: usage $currentForegroundBaseUsageMs >= $limitMs limit")
+                val reason = BlockReason.LimitReached(
+                    appName = appLimit.appName,
+                    limitType = com.stayfocused.app.domain.model.LimitType.TIME_LIMIT,
+                    used = currentForegroundBaseUsageMs,
+                    limit = limitMs
+                )
+                val manager = overlayManager
+                val canDraw = manager?.canDrawOverlays() ?: false
+                if (manager != null && canDraw) {
+                    manager.showOverlay(
+                        reason = reason,
+                        onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+                    )
+                } else {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+                return
+            }
+        }
 
         val context = InterceptionContext(
             targetPackageName = target,
             currentTimeMillis = System.currentTimeMillis(),
-            appLimit = appLimit,
+            appLimit = appLimit?.copy(currentDayUsageMs = currentForegroundBaseUsageMs),
             activeProfiles = cachedActiveProfiles,
             isStrictModeActive = isStrictActive,
             isBreakActive = isBreakActive,
@@ -340,45 +532,67 @@ class FocusAccessibilityService : AccessibilityService() {
                 overlayManager?.hideOverlay()
                 foregroundMonitorJob?.cancel()
 
-                // If app has active time limit, check asynchronously and poll every 5s while in foreground
+                // If app has active time limit, monitor live in 1-second ticks
                 if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0) {
-                    val limitMs = appLimit.dailyTimeLimitMinutes * 60 * 1000L
-                    foregroundMonitorJob = serviceScope.launch {
-                        while (isActive) {
-                            val current = usageStatsTracker?.queryPackageUsageToday(target) ?: 0L
-                            if (current >= limitMs) {
-                                val db = database
-                                if (db != null) {
-                                    try {
-                                        db.appLimitDao().updateUsageAndLaunches(
-                                            packageName = target,
-                                            usageMs = current,
-                                            launches = appLimit.currentDayLaunches
-                                        )
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Failed to persist limit lockout for $target", e)
-                                    }
-                                }
+                    startForegroundMonitor(target, appLimit)
+                }
+            }
+        }
+    }
 
-                                withContext(Dispatchers.Main) {
-                                    Log.i(TAG, "Limit expired in foreground for $target ($current >= $limitMs). Intercepting.")
-                                    val reason = BlockReason.LimitReached(
-                                        appName = appLimit.appName,
-                                        limitType = com.stayfocused.app.domain.model.LimitType.TIME_LIMIT,
-                                        used = current,
-                                        limit = limitMs
-                                    )
-                                    performGlobalAction(GLOBAL_ACTION_HOME)
-                                    overlayManager?.showOverlay(
-                                        reason = reason,
-                                        onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
-                                    )
-                                }
-                                break
-                            }
-                            delay(5000L)
+    private fun startForegroundMonitor(target: String, appLimit: AppLimitSnapshot) {
+        val limitMs = appLimit.dailyTimeLimitMinutes * 60 * 1000L
+        var sessionStartDay = usageStatsTracker?.getStartOfToday() ?: 0L
+        foregroundMonitorJob?.cancel()
+        foregroundMonitorJob = serviceScope.launch {
+            var lastPersistElapsed = SystemClock.elapsedRealtime()
+            while (isActive && isScreenInteractive) {
+                delay(1000L)
+                val nowElapsed = SystemClock.elapsedRealtime()
+
+                // Midnight rollover check: commit yesterday's usage, reset base usage, and continue monitoring
+                val todayStart = usageStatsTracker?.getStartOfToday() ?: sessionStartDay
+                if (todayStart > sessionStartDay) {
+                    val yesterdayTotal = currentForegroundBaseUsageMs + (nowElapsed - currentForegroundStartElapsed)
+                    persistUsage(target, yesterdayTotal)
+                    currentForegroundBaseUsageMs = 0L
+                    currentForegroundStartElapsed = nowElapsed
+                    lastPersistElapsed = nowElapsed
+                    sessionStartDay = todayStart
+                    continue
+                }
+
+                val sessionElapsed = nowElapsed - currentForegroundStartElapsed
+                val currentTotal = currentForegroundBaseUsageMs + sessionElapsed
+
+                // Incremental persistence every 15 seconds to defend against crashes/reboots
+                if (nowElapsed - lastPersistElapsed >= 15_000L) {
+                    lastPersistElapsed = nowElapsed
+                    persistUsage(target, currentTotal)
+                }
+
+                if (currentTotal >= limitMs) {
+                    persistUsage(target, currentTotal)
+                    withContext(Dispatchers.Main) {
+                        Log.i(TAG, "Limit expired in foreground for $target ($currentTotal >= $limitMs). Intercepting.")
+                        val reason = BlockReason.LimitReached(
+                            appName = appLimit.appName,
+                            limitType = com.stayfocused.app.domain.model.LimitType.TIME_LIMIT,
+                            used = currentTotal,
+                            limit = limitMs
+                        )
+                        val manager = overlayManager
+                        val canDraw = manager?.canDrawOverlays() ?: false
+                        if (manager != null && canDraw) {
+                            manager.showOverlay(
+                                reason = reason,
+                                onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+                            )
+                        } else {
+                            performGlobalAction(GLOBAL_ACTION_HOME)
                         }
                     }
+                    break
                 }
             }
         }
