@@ -27,6 +27,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import android.view.accessibility.AccessibilityNodeInfo
+import com.stayfocused.app.domain.ShortFormFeedInspector
+import com.stayfocused.app.domain.ShortFormViewContext
+import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.catch
@@ -51,6 +55,12 @@ class FocusAccessibilityService : AccessibilityService() {
     var packageRegistry: PackageRegistry? = null
     var usageStatsTracker: UsageStatsTracker? = null
     var database: StayFocusedDatabase? = null
+    var shortFormInspector: ShortFormFeedInspector = ShortFormFeedInspector()
+    @Volatile var cachedShortFormRules: Map<String, ShortFormRuleEntity> = emptyMap()
+    private val lastShortFormCheckElapsed = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val lastScrollIncrementElapsed = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    @Volatile var shortFormBackCount: Int = 0
+    @Volatile var lastShortFormBackElapsed: Long = 0L
 
     /**
      * Classifies transient system overlays (notification shade, IME, permission dialogs).
@@ -199,6 +209,9 @@ class FocusAccessibilityService : AccessibilityService() {
                     event.contentDescription?.let { add(it.toString()) }
                 }
                 handleWindowEvent(packageName, className, windowTexts)
+                checkShortFormVideoFeed(packageName, className, event)
+            } else if (eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+                checkShortFormVideoFeed(packageName, event.className?.toString(), event)
             } else if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
                 // Only inspect content changes for Settings/Installer packages to prevent event flooding on user apps
                 if (isSettingsOrInstallerPackage(packageName)) {
@@ -208,6 +221,8 @@ class FocusAccessibilityService : AccessibilityService() {
                         event.contentDescription?.let { add(it.toString()) }
                     }
                     handleWindowEvent(packageName, className, windowTexts)
+                } else if (shortFormInspector.isMonitoredPackage(packageName)) {
+                    checkShortFormVideoFeed(packageName, event.className?.toString(), event)
                 }
             }
         }.onFailure { e ->
@@ -225,6 +240,243 @@ class FocusAccessibilityService : AccessibilityService() {
                 lower.endsWith(".settings") ||
                 lower.contains("safecenter") ||
                 lower.contains("securitycenter")
+    }
+
+    @Suppress("DEPRECATION")
+    fun checkShortFormVideoFeed(
+        packageName: String,
+        className: String?,
+        event: AccessibilityEvent
+    ) {
+        if (!shortFormInspector.isMonitoredPackage(packageName)) return
+
+        // Fast-path: check if any short form rule is blocked for this package
+        val hasBlockedRules = cachedShortFormRules.values.any { it.packageName == packageName && it.isBlocked }
+        if (!hasBlockedRules) return
+
+        val eventType = event.eventType
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            // Phase 1 bitmask gate: ONLY evaluate if SUBTREE structure changed
+            if ((event.contentChangeTypes and AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE) == 0) {
+                return
+            }
+            // Cooldown throttle: 150ms per package
+            val now = SystemClock.elapsedRealtime()
+            val last = lastShortFormCheckElapsed[packageName] ?: 0L
+            if (now - last < 150L) return
+            lastShortFormCheckElapsed[packageName] = now
+        }
+
+        val presentIds = mutableSetOf<String>()
+        val selectedTabDescs = mutableSetOf<String>()
+        val selectedTabIds = mutableSetOf<String>()
+
+        val root = rootInActiveWindow
+        if (root != null) {
+            try {
+                val targetIds = when (packageName) {
+                    ShortFormFeedInspector.PKG_YOUTUBE -> listOf(
+                        "com.google.android.youtube:id/reel_recycler",
+                        "com.google.android.youtube:id/reel_watch_fragment_root",
+                        "com.google.android.youtube:id/reel_player_page_container"
+                    )
+                    ShortFormFeedInspector.PKG_INSTAGRAM -> listOf(
+                        "com.instagram.android:id/clips_viewer_view_pager",
+                        "com.instagram.android:id/clips_video_container",
+                        "com.instagram.android:id/reel_viewer_root",
+                        "com.instagram.android:id/story_viewer_container"
+                    )
+                    ShortFormFeedInspector.PKG_SNAPCHAT -> listOf(
+                        "com.snapchat.android:id/spotlight_view_container"
+                    )
+                    ShortFormFeedInspector.PKG_FACEBOOK -> listOf(
+                        "com.facebook.katana:id/fb_shorts_viewer_container"
+                    )
+                    else -> emptyList()
+                }
+                for (targetId in targetIds) {
+                    val nodes = root.findAccessibilityNodeInfosByViewId(targetId)
+                    try {
+                        if (nodes.isNotEmpty()) {
+                            presentIds.add(targetId)
+                            break // Early exit on first matching container
+                        }
+                    } finally {
+                        nodes.forEach { it.recycle() }
+                    }
+                }
+
+                // Tab bar checks: strictly scope to navigation bars to preserve Zero Screen Scraping
+                if (packageName == ShortFormFeedInspector.PKG_YOUTUBE) {
+                    val pivotBars = root.findAccessibilityNodeInfosByViewId("com.google.android.youtube:id/pivot_bar")
+                    val pivotBar = pivotBars.firstOrNull()
+                    val searchNode = pivotBar ?: root
+                    val shortsTabs = searchNode.findAccessibilityNodeInfosByText("Shorts")
+                    try {
+                        for (tab in shortsTabs) {
+                            val isNavTab = tab.className?.contains("Tab") == true ||
+                                    tab.viewIdResourceName?.contains("tab") == true ||
+                                    tab.viewIdResourceName?.contains("pivot") == true ||
+                                    tab.parent?.viewIdResourceName?.contains("pivot") == true
+                            if (isNavTab && tab.isSelected) {
+                                selectedTabDescs.add("shorts")
+                            }
+                        }
+                    } finally {
+                        shortsTabs.forEach { it.recycle() }
+                        pivotBars.forEach { it.recycle() }
+                    }
+                } else if (packageName == ShortFormFeedInspector.PKG_INSTAGRAM) {
+                    val clipsTabs = root.findAccessibilityNodeInfosByViewId("com.instagram.android:id/clips_tab")
+                    try {
+                        for (tab in clipsTabs) {
+                            if (tab.isSelected) {
+                                selectedTabIds.add("com.instagram.android:id/clips_tab")
+                            }
+                        }
+                    } finally {
+                        clipsTabs.forEach { it.recycle() }
+                    }
+                }
+            } finally {
+                root.recycle()
+            }
+        }
+
+        val context = ShortFormViewContext(
+            packageName = packageName,
+            className = className,
+            presentViewIds = presentIds,
+            selectedTabDescriptions = selectedTabDescs,
+            selectedTabIds = selectedTabIds
+        )
+
+        val detectedFeedId = shortFormInspector.detectFeed(context)
+        if (detectedFeedId != null) {
+            val rule = cachedShortFormRules[detectedFeedId]
+            if (rule != null && rule.isBlocked) {
+                if (rule.dailyScrollLimit > 0 && rule.currentDayScrolls < rule.dailyScrollLimit) {
+                    // Quota in progress: track video transition (throttled by 2000ms per video)
+                    val now = SystemClock.elapsedRealtime()
+                    val lastScroll = lastScrollIncrementElapsed[detectedFeedId] ?: 0L
+                    if (now - lastScroll >= 2000L) {
+                        lastScrollIncrementElapsed[detectedFeedId] = now
+                        val nextScrolls = rule.currentDayScrolls + 1
+                        val updatedRule = rule.copy(currentDayScrolls = nextScrolls)
+                        cachedShortFormRules = cachedShortFormRules + (detectedFeedId to updatedRule)
+
+                        val db = database
+                        if (db != null) {
+                            serviceScope.launch(Dispatchers.IO) {
+                                try {
+                                    db.shortFormRuleDao().incrementScrollCount(detectedFeedId, System.currentTimeMillis())
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed to increment scroll count for $detectedFeedId", e)
+                                }
+                            }
+                        }
+
+                        if (nextScrolls >= rule.dailyScrollLimit) {
+                            val safeTarget = shortFormInspector.getSafeNavigationTarget(detectedFeedId)
+                            handleShortFormEviction(
+                                ShortFormFeedInspector.ShortFormDecision.Evict(
+                                    feedId = detectedFeedId,
+                                    rule = updatedRule,
+                                    safeTabId = safeTarget.first,
+                                    safeTabDescription = safeTarget.second
+                                )
+                            )
+                        }
+                    }
+                } else if (rule.dailyScrollLimit == 0 || rule.currentDayScrolls >= rule.dailyScrollLimit) {
+                    val safeTarget = shortFormInspector.getSafeNavigationTarget(detectedFeedId)
+                    handleShortFormEviction(
+                        ShortFormFeedInspector.ShortFormDecision.Evict(
+                            feedId = detectedFeedId,
+                            rule = rule,
+                            safeTabId = safeTarget.first,
+                            safeTabDescription = safeTarget.second
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    fun handleShortFormEviction(decision: ShortFormFeedInspector.ShortFormDecision.Evict) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastShortFormBackElapsed < 2000L) {
+            shortFormBackCount++
+        } else {
+            shortFormBackCount = 1
+        }
+        lastShortFormBackElapsed = now
+
+        Log.i(TAG, "Short-form feed detected (${decision.feedId}). Eviction attempt $shortFormBackCount.")
+
+        var safeNavigationSuccess = false
+        if (shortFormBackCount >= 2 && (decision.safeTabId != null || decision.safeTabDescription != null)) {
+            val rootSafe = rootInActiveWindow
+            if (rootSafe != null) {
+                try {
+                    if (decision.safeTabId != null) {
+                        val safeNodes = rootSafe.findAccessibilityNodeInfosByViewId(decision.safeTabId)
+                        try {
+                            val targetNode = safeNodes.firstOrNull { node ->
+                                node.isClickable || node.parent?.isClickable == true
+                            }
+                            val clickableNode = if (targetNode?.isClickable == true) targetNode else targetNode?.parent
+                            if (clickableNode != null) {
+                                safeNavigationSuccess = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            }
+                        } finally {
+                            safeNodes.forEach { it.recycle() }
+                        }
+                    }
+                    if (!safeNavigationSuccess && decision.safeTabDescription != null) {
+                        val safeNodes = rootSafe.findAccessibilityNodeInfosByText(decision.safeTabDescription)
+                        try {
+                            val targetNode = safeNodes.firstOrNull { node ->
+                                (node.isClickable || node.parent?.isClickable == true) &&
+                                (node.className?.contains("Tab") == true ||
+                                 node.viewIdResourceName?.contains("tab") == true ||
+                                 node.viewIdResourceName?.contains("pivot") == true ||
+                                 node.parent?.viewIdResourceName?.contains("pivot") == true)
+                            }
+                            val clickableNode = if (targetNode?.isClickable == true) targetNode else targetNode?.parent
+                            if (clickableNode != null) {
+                                safeNavigationSuccess = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            }
+                        } finally {
+                            safeNodes.forEach { it.recycle() }
+                        }
+                    }
+                } finally {
+                    rootSafe.recycle()
+                }
+            }
+        }
+
+        if (safeNavigationSuccess) {
+            shortFormBackCount = 0
+        } else {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+
+        // Persist eviction/scroll count asynchronously for instant blocks (quota limit is tracked per scroll)
+        if (decision.rule.dailyScrollLimit == 0) {
+            val db = database
+            if (db != null) {
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        db.shortFormRuleDao().incrementScrollCount(decision.feedId, System.currentTimeMillis())
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to increment scroll count for ${decision.feedId}", e)
+                    }
+                }
+            }
+        }
     }
 
     fun persistUsage(packageName: String, usageMs: Long) {
@@ -660,6 +912,23 @@ class FocusAccessibilityService : AccessibilityService() {
                     .catch { e -> Log.e(TAG, "Error observing break sessions", e) }
                     .collectLatest { session ->
                         cachedBreakEndTimeMs = if (session != null && session.isActive) session.endTime else 0L
+                    }
+            }
+
+            // 5. Observe Short-Form Video Feed Rules
+            serviceScope.launch {
+                try {
+                    val existing = db.shortFormRuleDao().getAllRules()
+                    if (existing.isEmpty()) {
+                        db.shortFormRuleDao().insertDefaultRules(StayFocusedDatabase.DEFAULT_SHORT_FORM_RULES)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed seeding default short form rules", e)
+                }
+                db.shortFormRuleDao().getAllRulesFlow()
+                    .catch { e -> Log.e(TAG, "Error observing short-form rules", e) }
+                    .collectLatest { rules ->
+                        cachedShortFormRules = rules.associateBy { it.id }
                     }
             }
         } catch (e: Exception) {

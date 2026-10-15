@@ -23,6 +23,11 @@ class MidnightResetWorker(
             Log.i(TAG, "Executing midnight reset via WorkManager fallback")
             val db = StayFocusedDatabase.getInstance(applicationContext)
             db.appLimitDao().resetDailyUsage(System.currentTimeMillis())
+            try {
+                db.shortFormRuleDao().resetAllDailyScrolls()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to reset short-form scroll counters in worker", e)
+            }
 
             // Reschedule next midnight reset
             val scheduler = MidnightResetScheduler(applicationContext)

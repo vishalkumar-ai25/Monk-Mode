@@ -130,6 +130,10 @@ class MainActivity : ComponentActivity() {
                     )
                 )
             }
+            val ruleDao = database.shortFormRuleDao()
+            if (ruleDao.getAllRules().isEmpty()) {
+                ruleDao.insertDefaultRules(StayFocusedDatabase.DEFAULT_SHORT_FORM_RULES)
+            }
         }
 
         setContent {

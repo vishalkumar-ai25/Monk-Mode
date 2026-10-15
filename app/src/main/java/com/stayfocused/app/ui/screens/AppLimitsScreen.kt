@@ -77,6 +77,8 @@ import com.stayfocused.app.ui.theme.MonkInk
 import com.stayfocused.app.ui.theme.MonkLine
 import com.stayfocused.app.ui.theme.MonkMuted
 import com.stayfocused.app.ui.theme.MonkSage
+import androidx.compose.material3.HorizontalDivider
+import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
 import com.stayfocused.app.ui.theme.MonkText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -84,6 +86,7 @@ import kotlinx.coroutines.withContext
 
 enum class LimitSegment(val label: String) {
     APPS("Apps"),
+    FEEDS("Reels & Shorts"),
     WEBSITES("Websites")
 }
 
@@ -113,6 +116,7 @@ fun AppLimitsScreen(
 
     var selectedSegment by remember { mutableStateOf(LimitSegment.APPS) }
     val appLimits by database.appLimitDao().getAllAppLimits().collectAsState(initial = emptyList())
+    val shortFormRules by database.shortFormRuleDao().getAllRulesFlow().collectAsState(initial = emptyList())
     val blockedDomains by database.blockedDomainDao().getAllBlockedDomains().collectAsState(initial = emptyList())
     val activeStrictSession by database.strictSessionDao().getActiveStrictSession().collectAsState(initial = null)
 
@@ -149,7 +153,11 @@ fun AppLimitsScreen(
         item {
             Column {
                 Text(
-                    text = if (selectedSegment == LimitSegment.APPS) "App Limits" else "Website Blocker",
+                    text = when (selectedSegment) {
+                        LimitSegment.APPS -> "App Limits"
+                        LimitSegment.FEEDS -> "Reels & Shorts"
+                        LimitSegment.WEBSITES -> "Website Blocker"
+                    },
                     style = MaterialTheme.typography.headlineLarge.copy(
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
@@ -157,10 +165,11 @@ fun AppLimitsScreen(
                     )
                 )
                 Text(
-                    text = if (selectedSegment == LimitSegment.APPS)
-                        "Daily usage limits (15m, 30m, 1h) • sub-10ms interception"
-                    else
-                        "Local DNS proxy • 10.0.0.2/32 • RFC 1035 NXDOMAIN",
+                    text = when (selectedSegment) {
+                        LimitSegment.APPS -> "Daily usage limits (15m, 30m, 1h) • sub-10ms interception"
+                        LimitSegment.FEEDS -> "Surgical feed eviction • keeps long-form videos & chats accessible"
+                        LimitSegment.WEBSITES -> "Local DNS proxy • 10.0.0.2/32 • RFC 1035 NXDOMAIN"
+                    },
                     style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
                 )
 
@@ -490,6 +499,70 @@ fun AppLimitsScreen(
                                 initialMinutes = existing?.dailyTimeLimitMinutes ?: 15,
                                 initialLaunches = existing?.dailyLaunchLimit ?: 0
                             )
+                        }
+                    )
+                }
+            }
+        } else if (selectedSegment == LimitSegment.FEEDS) {
+            // SHORT-FORM FEEDS SEGMENT
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MonkCard),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Granular Short-Form Feed Protection",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = MonkText
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Surgically intercepts addictive vertical feeds (Shorts, Reels, Stories, Spotlight) and redirects to safe home feeds, while keeping long-form videos, search, and chats accessible.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted)
+                        )
+                    }
+                }
+            }
+
+            if (shortFormRules.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No short-form feed targets found.", color = MonkMuted)
+                    }
+                }
+            } else {
+                items(shortFormRules, key = { "feed_${it.id}" }) { rule ->
+                    ShortFormRuleRow(
+                        rule = rule,
+                        isLockedInStrict = activeStrictSession != null,
+                        onToggleBlocked = { newBlocked ->
+                            if (activeStrictSession != null) {
+                                Toast.makeText(context, "Modifying feed rules is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                            } else {
+                                scope.launch(Dispatchers.IO) {
+                                    database.shortFormRuleDao().setBlocked(rule.id, newBlocked)
+                                }
+                            }
+                        },
+                        onUpdateScrollLimit = { limit ->
+                            if (activeStrictSession != null) {
+                                Toast.makeText(context, "Modifying feed limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                            } else {
+                                scope.launch(Dispatchers.IO) {
+                                    database.shortFormRuleDao().setDailyScrollLimit(rule.id, limit)
+                                }
+                            }
                         }
                     )
                 }
@@ -1291,3 +1364,130 @@ private fun addDomain(
         }
     }
 }
+
+@Composable
+fun ShortFormRuleRow(
+    rule: ShortFormRuleEntity,
+    isLockedInStrict: Boolean,
+    onToggleBlocked: (Boolean) -> Unit,
+    onUpdateScrollLimit: (Int) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MonkCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MonkLine, RoundedCornerShape(16.dp))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = rule.displayName,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MonkText
+                            )
+                        )
+                        if (isLockedInStrict) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(MonkCardAlt, RoundedCornerShape(6.dp))
+                                    .border(1.dp, MonkLine, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "LOCKED",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MonkMuted
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = if (rule.isBlocked) {
+                            if (rule.dailyScrollLimit == 0) {
+                                "Blocked on open • Evicted ${rule.currentDayScrolls} times today"
+                            } else {
+                                "Quota: ${rule.currentDayScrolls}/${rule.dailyScrollLimit} scrolls used today"
+                            }
+                        } else {
+                            "Unrestricted access"
+                        },
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = if (rule.isBlocked) MonkEmber else MonkMuted
+                        )
+                    )
+                }
+
+                Switch(
+                    checked = rule.isBlocked,
+                    onCheckedChange = { onToggleBlocked(it) },
+                    enabled = !isLockedInStrict,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MonkInk,
+                        checkedTrackColor = MonkEmber,
+                        uncheckedThumbColor = MonkMuted,
+                        uncheckedTrackColor = MonkCardAlt,
+                        disabledCheckedThumbColor = MonkInk.copy(alpha = 0.5f),
+                        disabledCheckedTrackColor = MonkEmber.copy(alpha = 0.5f)
+                    )
+                )
+            }
+
+            if (rule.isBlocked) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = MonkLine, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Daily Allowance:",
+                    style = MaterialTheme.typography.labelSmall.copy(color = MonkMuted, fontWeight = FontWeight.SemiBold)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val limits = listOf(0 to "Instant Block", 5 to "5 Scrolls", 10 to "10 Scrolls", 20 to "20 Scrolls")
+                    limits.forEach { (limitValue, label) ->
+                        val isSelected = rule.dailyScrollLimit == limitValue
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(
+                                    if (isSelected) MonkEmberDim else MonkCardAlt,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isSelected) MonkEmber else MonkLine,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable(enabled = !isLockedInStrict) { onUpdateScrollLimit(limitValue) }
+                                .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) (if (isLockedInStrict) MonkEmber.copy(alpha = 0.6f) else MonkEmber) else MonkMuted
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

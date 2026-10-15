@@ -7,6 +7,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.registry.PackageRegistry
 import com.stayfocused.app.domain.InterceptionDecisionEngine
+import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
+import com.stayfocused.app.domain.ShortFormFeedInspector
 import com.stayfocused.app.domain.TransientWindowFilter
 import com.stayfocused.app.domain.model.AppLimitSnapshot
 import com.stayfocused.app.domain.model.BlockReason
@@ -610,5 +612,113 @@ class FocusAccessibilityServiceTest {
             windowTexts = emptyList()
         )
         assertEquals(selfPkg, service.currentForegroundPackage)
+    }
+
+    // ─── Short-form feed eviction tests ───────────────────────────────────────
+
+    @Test
+    fun testShortFormUnblockedAllowsVideoPlayback() {
+        val target = "com.google.android.youtube"
+        service.cachedShortFormRules = mapOf(
+            ShortFormFeedInspector.FEED_YOUTUBE_SHORTS to ShortFormRuleEntity(
+                id = ShortFormFeedInspector.FEED_YOUTUBE_SHORTS,
+                packageName = target,
+                displayName = "YouTube Shorts",
+                isBlocked = false
+            )
+        )
+        every { service.performGlobalAction(any()) } returns true
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = target
+            className = "com.google.android.apps.youtube.app.watch.flounder.ReelWatchActivity"
+        }
+
+        service.onAccessibilityEvent(event)
+
+        // Should not perform back action because isBlocked is false
+        verify(exactly = 0) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) }
+    }
+
+    @Test
+    fun testShortFormBlockedTriggersGlobalActionBack() {
+        val target = "com.google.android.youtube"
+        val rule = ShortFormRuleEntity(
+            id = ShortFormFeedInspector.FEED_YOUTUBE_SHORTS,
+            packageName = target,
+            displayName = "YouTube Shorts",
+            isBlocked = true,
+            dailyScrollLimit = 0
+        )
+        service.cachedShortFormRules = mapOf(rule.id to rule)
+        every { service.performGlobalAction(any()) } returns true
+
+        val decision = ShortFormFeedInspector.ShortFormDecision.Evict(
+            feedId = rule.id,
+            rule = rule,
+            safeTabDescription = "Home"
+        )
+
+        service.handleShortFormEviction(decision)
+
+        verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) }
+        assertEquals(1, service.shortFormBackCount)
+    }
+
+    @Test
+    fun testShortFormContentChangedWithoutSubtreeDropped() {
+        val target = "com.google.android.youtube"
+        service.cachedShortFormRules = mapOf(
+            ShortFormFeedInspector.FEED_YOUTUBE_SHORTS to ShortFormRuleEntity(
+                id = ShortFormFeedInspector.FEED_YOUTUBE_SHORTS,
+                packageName = target,
+                displayName = "YouTube Shorts",
+                isBlocked = true
+            )
+        )
+        every { service.performGlobalAction(any()) } returns true
+
+        // Event with CONTENT_CHANGE_TYPE_TEXT (caption tick), NOT SUBTREE
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+            packageName = target
+            contentChangeTypes = AccessibilityEvent.CONTENT_CHANGE_TYPE_TEXT
+        }
+
+        service.onAccessibilityEvent(event)
+
+        // Must drop event without inspection or eviction
+        verify(exactly = 0) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) }
+    }
+
+    @Test
+    fun testShortFormScrollQuotaProgression() {
+        val target = "com.google.android.youtube"
+        val rule = ShortFormRuleEntity(
+            id = ShortFormFeedInspector.FEED_YOUTUBE_SHORTS,
+            packageName = target,
+            displayName = "YouTube Shorts",
+            isBlocked = true,
+            dailyScrollLimit = 5,
+            currentDayScrolls = 4 // 1 scroll away from eviction!
+        )
+        service.cachedShortFormRules = mapOf(rule.id to rule)
+        every { service.performGlobalAction(any()) } returns true
+
+        // Simulate short form feed detection with quota hitting 5
+        val nextScrolls = rule.currentDayScrolls + 1
+        assertEquals(5, nextScrolls)
+        assertTrue(nextScrolls >= rule.dailyScrollLimit)
+
+        val evictDecision = ShortFormFeedInspector.ShortFormDecision.Evict(
+            feedId = rule.id,
+            rule = rule.copy(currentDayScrolls = nextScrolls),
+            safeTabDescription = "Home"
+        )
+        service.handleShortFormEviction(evictDecision)
+
+        verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) }
+        assertEquals(1, service.shortFormBackCount)
     }
 }

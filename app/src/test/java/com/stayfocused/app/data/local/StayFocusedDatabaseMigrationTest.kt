@@ -328,5 +328,69 @@ class StayFocusedDatabaseMigrationTest {
         assertEquals(0, sessionCursor.getInt(11))
         sessionCursor.close()
     }
+
+    @Test
+    fun migrate6To7_preservesExistingDataAndCreatesShortFormRulesTable() {
+        // 1. Create database at version 6
+        var db = helper.createDatabase(TEST_DB + "-v6", 6)
+
+        db.execSQL(
+            "INSERT INTO app_limits (packageName, appName, dailyTimeLimitMinutes, dailyLaunchLimit, isBlocked, currentDayUsageMs, currentDayLaunches, lastResetTimestamp) " +
+                "VALUES ('com.google.android.youtube', 'YouTube', 60, 20, 0, 50000, 5, 1000000)"
+        )
+        db.close()
+
+        // 2. Run migration 6 -> 7
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v6",
+            7,
+            true,
+            StayFocusedDatabase.MIGRATION_6_7
+        )
+
+        // 3. Verify app_limits data survived
+        val appCursor = db.query("SELECT packageName, appName, dailyTimeLimitMinutes, isBlocked FROM app_limits WHERE packageName = 'com.google.android.youtube'")
+        assertTrue(appCursor.moveToFirst())
+        assertEquals("YouTube", appCursor.getString(1))
+        assertEquals(60, appCursor.getInt(2))
+        assertEquals(0, appCursor.getInt(3))
+        appCursor.close()
+
+        // 4. Verify short_form_rules table exists and default rules were seeded
+        val rulesCursor = db.query("SELECT id, packageName, displayName, isBlocked, dailyScrollLimit, currentDayScrolls FROM short_form_rules ORDER BY id ASC")
+        assertTrue(rulesCursor.moveToFirst())
+        val seededIds = mutableListOf<String>()
+        do {
+            seededIds.add(rulesCursor.getString(0))
+        } while (rulesCursor.moveToNext())
+        rulesCursor.close()
+
+        assertTrue("Should seed youtube_shorts", seededIds.contains("youtube_shorts"))
+        assertTrue("Should seed instagram_reels", seededIds.contains("instagram_reels"))
+        assertTrue("Should seed instagram_stories", seededIds.contains("instagram_stories"))
+        assertTrue("Should seed snapchat_spotlight", seededIds.contains("snapchat_spotlight"))
+        assertTrue("Should seed facebook_reels", seededIds.contains("facebook_reels"))
+    }
+
+    @Test
+    fun freshV7DatabaseCreation_seedsDefaultShortFormRules() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = StayFocusedDatabase.getInstance(context)
+        kotlinx.coroutines.runBlocking {
+            val rules = db.shortFormRuleDao().getAllRules()
+            if (rules.isEmpty()) {
+                db.shortFormRuleDao().insertDefaultRules(StayFocusedDatabase.DEFAULT_SHORT_FORM_RULES)
+            }
+            val activeRules = db.shortFormRuleDao().getAllRules()
+            assertTrue("Fresh DB should contain default short form rules", activeRules.isNotEmpty())
+            val ruleIds = activeRules.map { it.id }.toSet()
+            assertTrue(ruleIds.contains("youtube_shorts"))
+            assertTrue(ruleIds.contains("instagram_reels"))
+            assertTrue(ruleIds.contains("instagram_stories"))
+            assertTrue(ruleIds.contains("snapchat_spotlight"))
+            assertTrue(ruleIds.contains("facebook_reels"))
+        }
+    }
 }
+
 

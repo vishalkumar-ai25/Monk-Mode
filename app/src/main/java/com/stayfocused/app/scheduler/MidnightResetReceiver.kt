@@ -47,8 +47,13 @@ class MidnightResetReceiver : BroadcastReceiver() {
 
     suspend fun executeReset(db: StayFocusedDatabase, scheduler: MidnightResetScheduler) {
         val now = System.currentTimeMillis()
-        Log.i(TAG, "Resetting daily app usage counters at $now")
+        Log.i(TAG, "Resetting daily app usage and short-form scroll counters at $now")
         db.appLimitDao().resetDailyUsage(now)
+        try {
+            db.shortFormRuleDao().resetAllDailyScrolls()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to reset short-form scroll counters", e)
+        }
         scheduler.scheduleNextMidnightReset()
     }
 }

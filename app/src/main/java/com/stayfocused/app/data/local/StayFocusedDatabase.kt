@@ -12,6 +12,7 @@ import com.stayfocused.app.data.local.dao.BreakSessionDao
 import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.FocusProfileDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
+import com.stayfocused.app.data.local.dao.ShortFormRuleDao
 import com.stayfocused.app.data.local.dao.StrictScheduleDao
 import com.stayfocused.app.data.local.dao.StrictSessionDao
 import com.stayfocused.app.data.local.dao.SuppressedNotificationDao
@@ -25,6 +26,7 @@ import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
 import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
+import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
 import com.stayfocused.app.data.local.entities.StrictScheduleEntity
 import com.stayfocused.app.data.local.entities.StrictSessionEntity
 import com.stayfocused.app.data.local.entities.SuppressedNotificationEntity
@@ -39,6 +41,8 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
  * - Version 3: Added `failsafe_logs` table (Phase 15 anti-tamper failsafe audit logging).
  * - Version 4: Added `reason` column to `break_sessions` table (Phase 9 friction-based breaks).
  * - Version 5: Added `strict_schedules` table and updated `strict_sessions` with hardware monotonic baseline and challenge type (Phase 16).
+ * - Version 6: Added monotonic timing and checkpoint columns to `strict_sessions` table (ADR 011).
+ * - Version 7: Added `short_form_rules` table for granular short-form video feed blocking (ADR 016).
  */
 @Database(
     entities = [
@@ -55,9 +59,10 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         NotificationBlockRuleEntity::class,
         SuppressedNotificationEntity::class,
         BreakSessionEntity::class,
-        FailsafeLogEntity::class
+        FailsafeLogEntity::class,
+        ShortFormRuleEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -71,6 +76,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
     abstract fun suppressedNotificationDao(): SuppressedNotificationDao
     abstract fun breakSessionDao(): BreakSessionDao
     abstract fun failsafeLogDao(): FailsafeLogDao
+    abstract fun shortFormRuleDao(): ShortFormRuleDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -144,6 +150,36 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `short_form_rules` (" +
+                        "`id` TEXT NOT NULL, " +
+                        "`packageName` TEXT NOT NULL, " +
+                        "`displayName` TEXT NOT NULL, " +
+                        "`isBlocked` INTEGER NOT NULL, " +
+                        "`dailyScrollLimit` INTEGER NOT NULL, " +
+                        "`currentDayScrolls` INTEGER NOT NULL, " +
+                        "`lastEvictionTimestamp` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`))"
+                )
+                // Seed default short-form feed targets
+                db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('youtube_shorts', 'com.google.android.youtube', 'YouTube Shorts', 0, 0, 0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('instagram_reels', 'com.instagram.android', 'Instagram Reels', 0, 0, 0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('instagram_stories', 'com.instagram.android', 'Instagram Stories', 0, 0, 0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('snapchat_spotlight', 'com.snapchat.android', 'Snapchat Spotlight', 0, 0, 0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('facebook_reels', 'com.facebook.katana', 'Facebook Reels', 0, 0, 0, 0)")
+            }
+        }
+
+        val DEFAULT_SHORT_FORM_RULES = listOf(
+            ShortFormRuleEntity("youtube_shorts", "com.google.android.youtube", "YouTube Shorts", false, 0, 0, 0L),
+            ShortFormRuleEntity("instagram_reels", "com.instagram.android", "Instagram Reels", false, 0, 0, 0L),
+            ShortFormRuleEntity("instagram_stories", "com.instagram.android", "Instagram Stories", false, 0, 0, 0L),
+            ShortFormRuleEntity("snapchat_spotlight", "com.snapchat.android", "Snapchat Spotlight", false, 0, 0, 0L),
+            ShortFormRuleEntity("facebook_reels", "com.facebook.katana", "Facebook Reels", false, 0, 0, 0L)
+        )
+
         @Volatile
         private var INSTANCE: StayFocusedDatabase? = null
 
@@ -154,7 +190,17 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addCallback(object : RoomDatabase.Callback() {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            super.onCreate(db)
+                            db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('youtube_shorts', 'com.google.android.youtube', 'YouTube Shorts', 0, 0, 0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('instagram_reels', 'com.instagram.android', 'Instagram Reels', 0, 0, 0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('instagram_stories', 'com.instagram.android', 'Instagram Stories', 0, 0, 0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('snapchat_spotlight', 'com.snapchat.android', 'Snapchat Spotlight', 0, 0, 0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('facebook_reels', 'com.facebook.katana', 'Facebook Reels', 0, 0, 0, 0)")
+                        }
+                    })
                     .build()
                     .also { INSTANCE = it }
             }
