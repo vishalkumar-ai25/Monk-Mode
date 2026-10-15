@@ -3,9 +3,11 @@ package com.stayfocused.app.service
 import android.content.Context
 import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ApplicationProvider
 import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.registry.PackageRegistry
+import com.stayfocused.app.domain.BrowserAddressBarInspector
 import com.stayfocused.app.domain.InterceptionDecisionEngine
 import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
 import com.stayfocused.app.domain.ShortFormFeedInspector
@@ -720,5 +722,105 @@ class FocusAccessibilityServiceTest {
 
         verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) }
         assertEquals(1, service.shortFormBackCount)
+    }
+
+    @Test
+    fun testChromeBlockedPathEvictsAndShowsOverlay() {
+        val target = "com.android.chrome"
+        service.cachedBlockedUrlPaths = listOf("/r/all")
+        service.browserInspector = BrowserAddressBarInspector(
+            ahoCorasickMatcherProvider = { service.keywordMatcher },
+            blockedDomainsProvider = { service.cachedBlockedDomains },
+            blockedPathsProvider = { service.cachedBlockedUrlPaths }
+        )
+        service.rebuildKeywordMatcher()
+        every { service.performGlobalAction(any()) } returns true
+
+        val mockRoot = mockk<AccessibilityNodeInfo>(relaxed = true)
+        val mockNode = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { mockNode.text } returns "reddit.com/r/all"
+        every { mockNode.isFocused } returns false
+        every { mockNode.isFocusable } returns true
+        every { mockRoot.findAccessibilityNodeInfosByViewId("com.android.chrome:id/url_bar") } returns listOf(mockNode)
+        every { mockRoot.findAccessibilityNodeInfosByViewId(match { it != "com.android.chrome:id/url_bar" }) } returns emptyList()
+        every { service.rootInActiveWindow } returns mockRoot
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = target
+            className = "org.chromium.chrome.browser.ChromeTabbedActivity"
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) }
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.WebBlocked && (it as BlockReason.WebBlocked).matchType == "PATH" },
+                any()
+            )
+        }
+    }
+
+    @Test
+    fun testChromeTypingInOmniboxDoesNotEvict() {
+        val target = "com.android.chrome"
+        service.cachedBlockedUrlPaths = listOf("/r/all")
+        service.rebuildKeywordMatcher()
+        every { service.performGlobalAction(any()) } returns true
+
+        val mockRoot = mockk<AccessibilityNodeInfo>(relaxed = true)
+        val mockNode = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { mockNode.text } returns "reddit.com/r/all"
+        every { mockNode.isFocused } returns true // Actively typing!
+        every { mockNode.isFocusable } returns true
+        every { mockRoot.findAccessibilityNodeInfosByViewId("com.android.chrome:id/url_bar") } returns listOf(mockNode)
+        every { mockRoot.findAccessibilityNodeInfosByViewId(match { it != "com.android.chrome:id/url_bar" }) } returns emptyList()
+        every { service.rootInActiveWindow } returns mockRoot
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = target
+            className = "org.chromium.chrome.browser.ChromeTabbedActivity"
+        }
+
+        service.onAccessibilityEvent(event)
+
+        // Must not evict or show overlay while typing
+        verify(exactly = 0) { service.performGlobalAction(any()) }
+        verify(exactly = 0) { mockOverlayManager.showOverlay(any(), any()) }
+    }
+
+    @Test
+    fun testChromeBlockedAdultKeywordEvicts() {
+        val target = "com.android.chrome"
+        service.isAdultContentBlockerEnabled = true
+        service.rebuildKeywordMatcher()
+        every { service.performGlobalAction(any()) } returns true
+
+        val mockRoot = mockk<AccessibilityNodeInfo>(relaxed = true)
+        val mockNode = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { mockNode.text } returns "https://pornhub.com"
+        every { mockNode.isFocused } returns false
+        every { mockNode.isFocusable } returns true
+        every { mockRoot.findAccessibilityNodeInfosByViewId("com.android.chrome:id/url_bar") } returns listOf(mockNode)
+        every { mockRoot.findAccessibilityNodeInfosByViewId(match { it != "com.android.chrome:id/url_bar" }) } returns emptyList()
+        every { service.rootInActiveWindow } returns mockRoot
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = target
+            className = "org.chromium.chrome.browser.ChromeTabbedActivity"
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) { service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) }
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.WebBlocked && (it as BlockReason.WebBlocked).matchType == "ADULT" },
+                any()
+            )
+        }
     }
 }

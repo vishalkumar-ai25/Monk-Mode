@@ -54,6 +54,12 @@ class MidnightResetReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to reset short-form scroll counters", e)
         }
+        try {
+            val cutoff = now - 30L * 24 * 60 * 60 * 1000L
+            db.browsingHistoryDao().deleteOlderThan(cutoff)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to prune old browsing history", e)
+        }
         scheduler.scheduleNextMidnightReset()
     }
 }

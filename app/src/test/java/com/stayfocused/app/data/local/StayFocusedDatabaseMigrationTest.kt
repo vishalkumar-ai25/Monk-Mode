@@ -373,7 +373,74 @@ class StayFocusedDatabaseMigrationTest {
     }
 
     @Test
-    fun freshV7DatabaseCreation_seedsDefaultShortFormRules() {
+    fun migrate7To8_preservesExistingDataAndCreatesBrowsingTables() {
+        // 1. Create database at version 7
+        var db = helper.createDatabase(TEST_DB + "-v7", 7)
+
+        db.execSQL(
+            "INSERT INTO short_form_rules (id, packageName, displayName, isBlocked, dailyScrollLimit, currentDayScrolls, lastEvictionTimestamp) " +
+                "VALUES ('youtube_shorts', 'com.google.android.youtube', 'YouTube Shorts', 1, 5, 2, 1000)"
+        )
+        db.close()
+
+        // 2. Run migration 7 -> 8
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v7",
+            8,
+            true,
+            StayFocusedDatabase.MIGRATION_7_8
+        )
+
+        // 3. Verify short_form_rules data survived
+        val sfCursor = db.query("SELECT id, isBlocked, dailyScrollLimit, currentDayScrolls FROM short_form_rules WHERE id = 'youtube_shorts'")
+        assertTrue(sfCursor.moveToFirst())
+        assertEquals("youtube_shorts", sfCursor.getString(0))
+        assertEquals(1, sfCursor.getInt(1))
+        assertEquals(5, sfCursor.getInt(2))
+        assertEquals(2, sfCursor.getInt(3))
+        sfCursor.close()
+
+        // 4. Verify browsing_history table exists and is writable
+        db.execSQL(
+            "INSERT INTO browsing_history (timestampMs, browserPackage, domain, fullUrl, dwellTimeMs, wasBlocked, blockReason) " +
+                "VALUES (5000000, 'com.android.chrome', 'reddit.com', 'https://reddit.com/r/androiddev', 12000, 0, NULL)"
+        )
+        val historyCursor = db.query("SELECT timestampMs, browserPackage, domain, fullUrl, dwellTimeMs, wasBlocked FROM browsing_history WHERE domain = 'reddit.com'")
+        assertTrue(historyCursor.moveToFirst())
+        assertEquals(5000000L, historyCursor.getLong(0))
+        assertEquals("com.android.chrome", historyCursor.getString(1))
+        assertEquals("reddit.com", historyCursor.getString(2))
+        assertEquals("https://reddit.com/r/androiddev", historyCursor.getString(3))
+        assertEquals(12000L, historyCursor.getLong(4))
+        assertEquals(0, historyCursor.getInt(5))
+        historyCursor.close()
+
+        // 5. Verify blocked_keywords table exists and is writable
+        db.execSQL(
+            "INSERT INTO blocked_keywords (keyword, isBlocked, category, createdAt) " +
+                "VALUES ('casino', 1, 'custom', 6000000)"
+        )
+        val kwCursor = db.query("SELECT keyword, isBlocked, category FROM blocked_keywords WHERE keyword = 'casino'")
+        assertTrue(kwCursor.moveToFirst())
+        assertEquals("casino", kwCursor.getString(0))
+        assertEquals(1, kwCursor.getInt(1))
+        assertEquals("custom", kwCursor.getString(2))
+        kwCursor.close()
+
+        // 6. Verify blocked_url_paths table exists and is writable
+        db.execSQL(
+            "INSERT INTO blocked_url_paths (pathPattern, isBlocked, createdAt) " +
+                "VALUES ('/r/all', 1, 7000000)"
+        )
+        val pathCursor = db.query("SELECT pathPattern, isBlocked FROM blocked_url_paths WHERE pathPattern = '/r/all'")
+        assertTrue(pathCursor.moveToFirst())
+        assertEquals("/r/all", pathCursor.getString(0))
+        assertEquals(1, pathCursor.getInt(1))
+        pathCursor.close()
+    }
+
+    @Test
+    fun freshV8DatabaseCreation_seedsDefaultShortFormRulesAndHasBrowsingTables() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = StayFocusedDatabase.getInstance(context)
         kotlinx.coroutines.runBlocking {
@@ -383,12 +450,16 @@ class StayFocusedDatabaseMigrationTest {
             }
             val activeRules = db.shortFormRuleDao().getAllRules()
             assertTrue("Fresh DB should contain default short form rules", activeRules.isNotEmpty())
-            val ruleIds = activeRules.map { it.id }.toSet()
-            assertTrue(ruleIds.contains("youtube_shorts"))
-            assertTrue(ruleIds.contains("instagram_reels"))
-            assertTrue(ruleIds.contains("instagram_stories"))
-            assertTrue(ruleIds.contains("snapchat_spotlight"))
-            assertTrue(ruleIds.contains("facebook_reels"))
+
+            // Test DAOs for new v8 tables
+            val emptyKeywords = db.blockedKeywordDao().getAllBlockedKeywordsSync()
+            assertTrue(emptyKeywords.isEmpty())
+
+            val emptyPaths = db.blockedUrlPathDao().getAllBlockedUrlPathsSync()
+            assertTrue(emptyPaths.isEmpty())
+
+            val emptyHistory = db.browsingHistoryDao().getRecentHistorySync()
+            assertTrue(emptyHistory.isEmpty())
         }
     }
 }

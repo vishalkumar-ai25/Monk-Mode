@@ -18,9 +18,14 @@ class ProtectionPreferences(context: Context) {
         get() = prefs.getLong(KEY_LAST_RED_ALERT, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_RED_ALERT, value).apply()
 
+    var isAdultBlockerEnabled: Boolean
+        get() = prefs.getBoolean(KEY_ADULT_BLOCKER_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_ADULT_BLOCKER_ENABLED, value).apply()
+
     companion object {
         private const val PREFS_NAME = "stayfocused_protection_prefs"
         private const val KEY_LAST_WATCHDOG_RUN = "key_last_watchdog_run"
         private const val KEY_LAST_RED_ALERT = "key_last_red_alert"
+        private const val KEY_ADULT_BLOCKER_ENABLED = "key_adult_blocker_enabled"
     }
 }

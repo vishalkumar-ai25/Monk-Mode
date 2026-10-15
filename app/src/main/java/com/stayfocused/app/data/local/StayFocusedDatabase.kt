@@ -8,7 +8,10 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stayfocused.app.data.local.dao.AppLimitDao
 import com.stayfocused.app.data.local.dao.BlockedDomainDao
+import com.stayfocused.app.data.local.dao.BlockedKeywordDao
+import com.stayfocused.app.data.local.dao.BlockedUrlPathDao
 import com.stayfocused.app.data.local.dao.BreakSessionDao
+import com.stayfocused.app.data.local.dao.BrowsingHistoryDao
 import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.FocusProfileDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
@@ -18,7 +21,10 @@ import com.stayfocused.app.data.local.dao.StrictSessionDao
 import com.stayfocused.app.data.local.dao.SuppressedNotificationDao
 import com.stayfocused.app.data.local.entities.AppLimitEntity
 import com.stayfocused.app.data.local.entities.BlockedDomainEntity
+import com.stayfocused.app.data.local.entities.BlockedKeywordEntity
+import com.stayfocused.app.data.local.entities.BlockedUrlPathEntity
 import com.stayfocused.app.data.local.entities.BreakSessionEntity
+import com.stayfocused.app.data.local.entities.BrowsingHistoryEntity
 import com.stayfocused.app.data.local.entities.FailsafeLogEntity
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
 import com.stayfocused.app.data.local.entities.GeofenceProfileEntity
@@ -43,6 +49,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
  * - Version 5: Added `strict_schedules` table and updated `strict_sessions` with hardware monotonic baseline and challenge type (Phase 16).
  * - Version 6: Added monotonic timing and checkpoint columns to `strict_sessions` table (ADR 011).
  * - Version 7: Added `short_form_rules` table for granular short-form video feed blocking (ADR 016).
+ * - Version 8: Added `browsing_history`, `blocked_keywords`, and `blocked_url_paths` tables for URL & keyword blocking (ADR 017).
  */
 @Database(
     entities = [
@@ -60,9 +67,12 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         SuppressedNotificationEntity::class,
         BreakSessionEntity::class,
         FailsafeLogEntity::class,
-        ShortFormRuleEntity::class
+        ShortFormRuleEntity::class,
+        BrowsingHistoryEntity::class,
+        BlockedKeywordEntity::class,
+        BlockedUrlPathEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -77,6 +87,9 @@ abstract class StayFocusedDatabase : RoomDatabase() {
     abstract fun breakSessionDao(): BreakSessionDao
     abstract fun failsafeLogDao(): FailsafeLogDao
     abstract fun shortFormRuleDao(): ShortFormRuleDao
+    abstract fun browsingHistoryDao(): BrowsingHistoryDao
+    abstract fun blockedKeywordDao(): BlockedKeywordDao
+    abstract fun blockedUrlPathDao(): BlockedUrlPathDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -172,6 +185,41 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `browsing_history` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`timestampMs` INTEGER NOT NULL, " +
+                        "`browserPackage` TEXT NOT NULL, " +
+                        "`domain` TEXT NOT NULL, " +
+                        "`fullUrl` TEXT NOT NULL, " +
+                        "`dwellTimeMs` INTEGER NOT NULL, " +
+                        "`wasBlocked` INTEGER NOT NULL, " +
+                        "`blockReason` TEXT)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_browsing_history_timestampMs` ON `browsing_history` (`timestampMs`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_browsing_history_domain_timestampMs` ON `browsing_history` (`domain`, `timestampMs`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `blocked_keywords` (" +
+                        "`keyword` TEXT NOT NULL, " +
+                        "`isBlocked` INTEGER NOT NULL DEFAULT 1, " +
+                        "`category` TEXT NOT NULL DEFAULT 'custom', " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`keyword`))"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `blocked_url_paths` (" +
+                        "`pathPattern` TEXT NOT NULL, " +
+                        "`isBlocked` INTEGER NOT NULL DEFAULT 1, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`pathPattern`))"
+                )
+            }
+        }
+
         val DEFAULT_SHORT_FORM_RULES = listOf(
             ShortFormRuleEntity("youtube_shorts", "com.google.android.youtube", "YouTube Shorts", false, 0, 0, 0L),
             ShortFormRuleEntity("instagram_reels", "com.instagram.android", "Instagram Reels", false, 0, 0, 0L),
@@ -190,7 +238,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

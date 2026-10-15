@@ -28,6 +28,12 @@ class MidnightResetWorker(
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to reset short-form scroll counters in worker", e)
             }
+            try {
+                val cutoff = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000L
+                db.browsingHistoryDao().deleteOlderThan(cutoff)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to prune old browsing history in worker", e)
+            }
 
             // Reschedule next midnight reset
             val scheduler = MidnightResetScheduler(applicationContext)

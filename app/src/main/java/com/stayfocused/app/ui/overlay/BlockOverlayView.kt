@@ -160,6 +160,7 @@ private fun getBlockTitle(reason: BlockReason): String {
         is BlockReason.ProfileActive -> "Focus Session Active"
         is BlockReason.SettingsTamper -> "Settings Protected"
         is BlockReason.ManuallyBlocked -> "App Blocked"
+        is BlockReason.WebBlocked -> "Website Restricted"
     }
 }
 
@@ -184,6 +185,9 @@ private fun getBlockDetail(reason: BlockReason): String {
         }
         is BlockReason.ManuallyBlocked -> {
             "${reason.appName} is manually blocked to protect your attention."
+        }
+        is BlockReason.WebBlocked -> {
+            "Access to \"${reason.target}\" is blocked by your ${reason.matchType.lowercase()} rule (${reason.matchedRule})."
         }
     }
 }

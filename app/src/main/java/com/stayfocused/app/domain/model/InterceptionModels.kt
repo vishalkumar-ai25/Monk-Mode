@@ -27,6 +27,12 @@ sealed interface BlockReason {
     data class ManuallyBlocked(
         val appName: String
     ) : BlockReason
+
+    data class WebBlocked(
+        val target: String,
+        val matchType: String, // "DOMAIN", "PATH", "KEYWORD", "ADULT"
+        val matchedRule: String
+    ) : BlockReason
 }
 
 sealed interface InterceptionResult {

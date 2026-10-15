@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -28,8 +29,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import android.view.accessibility.AccessibilityNodeInfo
+import com.stayfocused.app.domain.AhoCorasickKeywordMatcher
+import com.stayfocused.app.domain.BrowserAddressBarInspector
+import com.stayfocused.app.domain.BrowserAddressBarViewContext
+import com.stayfocused.app.domain.BrowserInspectionResult
+import com.stayfocused.app.domain.BrowserUrlBarRegistry
+import com.stayfocused.app.domain.ParsedOmniboxContent
 import com.stayfocused.app.domain.ShortFormFeedInspector
 import com.stayfocused.app.domain.ShortFormViewContext
+import com.stayfocused.app.domain.UrlNormalizer
+import com.stayfocused.app.data.local.entities.BrowsingHistoryEntity
 import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -62,6 +71,43 @@ class FocusAccessibilityService : AccessibilityService() {
     @Volatile var shortFormBackCount: Int = 0
     @Volatile var lastShortFormBackElapsed: Long = 0L
 
+    // In-memory web rules & browser inspection engine
+    @Volatile var cachedBlockedDomains: Set<String> = emptySet()
+    @Volatile var cachedBlockedKeywords: List<String> = emptyList()
+    @Volatile var cachedBlockedUrlPaths: List<String> = emptyList()
+    @Volatile var isAdultContentBlockerEnabled: Boolean = true
+    @Volatile var keywordMatcher: AhoCorasickKeywordMatcher = AhoCorasickKeywordMatcher.create(
+        customKeywords = emptyList(),
+        blockedPaths = emptyList(),
+        includeAdultDictionary = true
+    )
+    var browserInspector: BrowserAddressBarInspector = BrowserAddressBarInspector(
+        ahoCorasickMatcherProvider = { keywordMatcher },
+        blockedDomainsProvider = { cachedBlockedDomains },
+        blockedPathsProvider = { cachedBlockedUrlPaths }
+    )
+
+    data class ActiveDwellSession(
+        val browserPackage: String,
+        val domain: String,
+        val fullUrl: String,
+        val startWallTimeMs: Long,
+        val startElapsedRealtime: Long,
+        val isIncognito: Boolean
+    )
+
+    @Volatile var activeDwellSession: ActiveDwellSession? = null
+    private val lastBrowserCheckElapsed = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val lastBlockedUrlEvictionElapsed = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun rebuildKeywordMatcher() {
+        keywordMatcher = AhoCorasickKeywordMatcher.create(
+            customKeywords = cachedBlockedKeywords,
+            blockedPaths = cachedBlockedUrlPaths,
+            includeAdultDictionary = isAdultContentBlockerEnabled
+        )
+    }
+
     /**
      * Classifies transient system overlays (notification shade, IME, permission dialogs).
      * Initialized in [onCreate] with the live IME lambda; replaced in unit tests for
@@ -83,6 +129,7 @@ class FocusAccessibilityService : AccessibilityService() {
     fun setScreenInteractiveState(interactive: Boolean) {
         isScreenInteractive = interactive
         if (!interactive) {
+            flushActiveDwellSession()
             val pkg = currentForegroundPackage
             if (pkg != null) {
                 val elapsed = SystemClock.elapsedRealtime() - currentForegroundStartElapsed
@@ -178,14 +225,39 @@ class FocusAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.w(TAG, "Could not register screen receiver", e)
         }
+
+        try {
+            val prefs = getSharedPreferences("stayfocused_protection_prefs", Context.MODE_PRIVATE)
+            isAdultContentBlockerEnabled = prefs.getBoolean("key_adult_blocker_enabled", true)
+            rebuildKeywordMatcher()
+            prefListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+                if (key == "key_adult_blocker_enabled") {
+                    isAdultContentBlockerEnabled = sharedPreferences.getBoolean(key, true)
+                    rebuildKeywordMatcher()
+                }
+            }
+            prefs.registerOnSharedPreferenceChangeListener(prefListener)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not register protection preference listener", e)
+        }
+
         observeDatabaseState()
     }
 
+    private var prefListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
     override fun onDestroy() {
         super.onDestroy()
+        flushActiveDwellSession()
         foregroundMonitorJob?.cancel()
         serviceScope.cancel()
         overlayManager?.hideOverlay()
+        prefListener?.let { listener ->
+            try {
+                getSharedPreferences("stayfocused_protection_prefs", Context.MODE_PRIVATE)
+                    .unregisterOnSharedPreferenceChangeListener(listener)
+            } catch (_: Exception) {}
+        }
         if (screenReceiverRegistered) {
             try {
                 unregisterReceiver(screenReceiver)
@@ -210,8 +282,10 @@ class FocusAccessibilityService : AccessibilityService() {
                 }
                 handleWindowEvent(packageName, className, windowTexts)
                 checkShortFormVideoFeed(packageName, className, event)
+                checkBrowserAddressBar(packageName, className, event)
             } else if (eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
                 checkShortFormVideoFeed(packageName, event.className?.toString(), event)
+                checkBrowserAddressBar(packageName, event.className?.toString(), event)
             } else if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
                 // Only inspect content changes for Settings/Installer packages to prevent event flooding on user apps
                 if (isSettingsOrInstallerPackage(packageName)) {
@@ -223,6 +297,8 @@ class FocusAccessibilityService : AccessibilityService() {
                     handleWindowEvent(packageName, className, windowTexts)
                 } else if (shortFormInspector.isMonitoredPackage(packageName)) {
                     checkShortFormVideoFeed(packageName, event.className?.toString(), event)
+                } else if (BrowserUrlBarRegistry.isSupportedBrowser(packageName)) {
+                    checkBrowserAddressBar(packageName, event.className?.toString(), event)
                 }
             }
         }.onFailure { e ->
@@ -479,6 +555,183 @@ class FocusAccessibilityService : AccessibilityService() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    fun checkBrowserAddressBar(
+        packageName: String,
+        className: String?,
+        event: AccessibilityEvent
+    ) {
+        if (!BrowserUrlBarRegistry.isSupportedBrowser(packageName)) return
+
+        val eventType = event.eventType
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            val contentChangeTypes = event.contentChangeTypes
+            val isValidChange = (contentChangeTypes and (AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE or AccessibilityEvent.CONTENT_CHANGE_TYPE_TEXT)) != 0
+            if (!isValidChange) return
+
+            val now = SystemClock.elapsedRealtime()
+            val last = lastBrowserCheckElapsed[packageName] ?: 0L
+            if (now - last < 250L) return
+            lastBrowserCheckElapsed[packageName] = now
+        }
+
+        val root = rootInActiveWindow ?: return
+        val config = BrowserUrlBarRegistry.getBrowserConfig(packageName)
+        val candidateIds = BrowserUrlBarRegistry.getAllCandidateIds(packageName)
+
+        var addressBarText: String? = null
+        var isFocused = false
+        var isFocusable = true
+        var isIncognito = config?.isAlwaysPrivate == true
+
+        try {
+            for (targetId in candidateIds) {
+                val nodes = root.findAccessibilityNodeInfosByViewId(targetId)
+                try {
+                    if (nodes.isNotEmpty()) {
+                        val node = nodes[0]
+                        isFocused = node.isFocused
+                        isFocusable = node.isFocusable
+                        addressBarText = node.text?.toString()
+                        break
+                    }
+                } finally {
+                    for (n in nodes) {
+                        try { n.recycle() } catch (_: Throwable) {}
+                    }
+                }
+            }
+
+            // Check incognito badge
+            val incognitoBadgeId = config?.incognitoBadgeId
+            if (incognitoBadgeId != null) {
+                val badgeNodes = root.findAccessibilityNodeInfosByViewId(incognitoBadgeId)
+                try {
+                    isIncognito = isIncognito || badgeNodes.isNotEmpty()
+                } finally {
+                    for (n in badgeNodes) {
+                        try { n.recycle() } catch (_: Throwable) {}
+                    }
+                }
+            }
+        } finally {
+            try { root.recycle() } catch (_: Throwable) {}
+        }
+
+        if (addressBarText == null) return
+
+        val viewContext = BrowserAddressBarViewContext(
+            packageName = packageName,
+            addressBarText = addressBarText,
+            isFocused = isFocused,
+            isFocusable = isFocusable,
+            isIncognito = isIncognito
+        )
+
+        val decision = browserInspector.inspect(viewContext)
+        when (decision) {
+            is BrowserInspectionResult.Blocked -> {
+                Log.w(TAG, "BLOCKED URL/Keyword in $packageName: ${decision.target} (Rule: ${decision.reason.matchedRule})")
+
+                val now = SystemClock.elapsedRealtime()
+                val lastEviction = lastBlockedUrlEvictionElapsed[packageName] ?: 0L
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                if (now - lastEviction < 1000L) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+                lastBlockedUrlEvictionElapsed[packageName] = now
+
+                overlayManager?.showOverlay(
+                    reason = decision.reason,
+                    onReturnHome = {
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                    }
+                )
+
+                val domain = UrlNormalizer.parse(addressBarText).let {
+                    if (it is ParsedOmniboxContent.Url) it.domain else decision.target
+                }
+                val sanitizedUrl = UrlNormalizer.stripQueryParams(addressBarText)
+                if (!decision.isIncognito) {
+                    val db = database
+                    if (db != null) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            try {
+                                db.browsingHistoryDao().insert(
+                                    BrowsingHistoryEntity(
+                                        timestampMs = System.currentTimeMillis(),
+                                        browserPackage = packageName,
+                                        domain = domain,
+                                        fullUrl = sanitizedUrl,
+                                        dwellTimeMs = 0L,
+                                        wasBlocked = true,
+                                        blockReason = decision.reason.matchedRule
+                                    )
+                                )
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed inserting blocked browsing history", e)
+                            }
+                        }
+                    }
+                }
+                activeDwellSession = null
+            }
+
+            is BrowserInspectionResult.Allowed -> {
+                if (decision.parsed is ParsedOmniboxContent.Url) {
+                    val parsedUrl = decision.parsed
+                    val now = SystemClock.elapsedRealtime()
+                    val currentDwell = activeDwellSession
+
+                    if (currentDwell != null && (currentDwell.domain != parsedUrl.domain || currentDwell.fullUrl != parsedUrl.fullNormalizedUrl)) {
+                        flushActiveDwellSession()
+                    }
+
+                    if (activeDwellSession == null) {
+                        activeDwellSession = ActiveDwellSession(
+                            browserPackage = packageName,
+                            domain = parsedUrl.domain,
+                            fullUrl = parsedUrl.fullNormalizedUrl,
+                            startWallTimeMs = System.currentTimeMillis(),
+                            startElapsedRealtime = now,
+                            isIncognito = decision.isIncognito
+                        )
+                    }
+                }
+            }
+
+            else -> { /* TypingInOmnibox, EmptyContent, etc. do nothing */ }
+        }
+    }
+
+    fun flushActiveDwellSession() {
+        val session = activeDwellSession ?: return
+        activeDwellSession = null
+
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val dwellMs = nowElapsed - session.startElapsedRealtime
+
+        if (dwellMs >= 3000L && !session.isIncognito) {
+            val sanitizedUrl = UrlNormalizer.stripQueryParams(session.fullUrl)
+            val db = database ?: return
+            val entity = BrowsingHistoryEntity(
+                timestampMs = session.startWallTimeMs,
+                browserPackage = session.browserPackage,
+                domain = session.domain,
+                fullUrl = sanitizedUrl,
+                dwellTimeMs = dwellMs,
+                wasBlocked = false
+            )
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    db.browsingHistoryDao().insert(entity)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed flushing dwell browsing history", e)
+                }
+            }
+        }
+    }
+
     fun persistUsage(packageName: String, usageMs: Long) {
         val lower = packageName.lowercase()
         val limit = cachedAppLimits[lower] ?: return
@@ -508,6 +761,7 @@ class FocusAccessibilityService : AccessibilityService() {
     ) {
         val target = packageName.trim()
         if (target.isEmpty() || target.equals(applicationContext.packageName, ignoreCase = true)) {
+            flushActiveDwellSession()
             val previousPkg = currentForegroundPackage
             if (previousPkg != null && isScreenInteractive) {
                 val elapsed = SystemClock.elapsedRealtime() - currentForegroundStartElapsed
@@ -740,6 +994,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
         // Increment launch counts on *real* package transition (transients have already returned above)
         if (target != lastForegroundPackage) {
+            flushActiveDwellSession()
             lastForegroundPackage = target
             val db = database
             if (db != null) {
@@ -929,6 +1184,35 @@ class FocusAccessibilityService : AccessibilityService() {
                     .catch { e -> Log.e(TAG, "Error observing short-form rules", e) }
                     .collectLatest { rules ->
                         cachedShortFormRules = rules.associateBy { it.id }
+                    }
+            }
+
+            // 6. Observe Blocked Domains
+            serviceScope.launch {
+                db.blockedDomainDao().getAllBlockedDomains()
+                    .catch { e -> Log.e(TAG, "Error observing blocked domains", e) }
+                    .collectLatest { domains ->
+                        cachedBlockedDomains = domains.filter { it.isBlocked }.map { it.domain.lowercase() }.toSet()
+                    }
+            }
+
+            // 7. Observe Blocked Keywords
+            serviceScope.launch {
+                db.blockedKeywordDao().getAllBlockedKeywords()
+                    .catch { e -> Log.e(TAG, "Error observing blocked keywords", e) }
+                    .collectLatest { keywords ->
+                        cachedBlockedKeywords = keywords.map { it.keyword }
+                        rebuildKeywordMatcher()
+                    }
+            }
+
+            // 8. Observe Blocked URL Paths
+            serviceScope.launch {
+                db.blockedUrlPathDao().getAllBlockedUrlPaths()
+                    .catch { e -> Log.e(TAG, "Error observing blocked url paths", e) }
+                    .collectLatest { paths ->
+                        cachedBlockedUrlPaths = paths.map { it.pathPattern }
+                        rebuildKeywordMatcher()
                     }
             }
         } catch (e: Exception) {
