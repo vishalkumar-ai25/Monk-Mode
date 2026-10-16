@@ -32,7 +32,7 @@ class MidnightResetReceiver : BroadcastReceiver() {
                 val scheduler = MidnightResetScheduler(context)
 
                 if (action == ACTION_MIDNIGHT_RESET) {
-                    executeReset(db, scheduler)
+                    executeReset(db, scheduler, context)
                 } else if (action == Intent.ACTION_BOOT_COMPLETED) {
                     Log.i(TAG, "Re-scheduling midnight alarm on boot")
                     scheduler.scheduleNextMidnightReset()
@@ -45,7 +45,11 @@ class MidnightResetReceiver : BroadcastReceiver() {
         }
     }
 
-    suspend fun executeReset(db: StayFocusedDatabase, scheduler: MidnightResetScheduler) {
+    suspend fun executeReset(
+        db: StayFocusedDatabase,
+        scheduler: MidnightResetScheduler,
+        context: Context? = null
+    ) {
         val now = System.currentTimeMillis()
         Log.i(TAG, "Resetting daily app usage and short-form scroll counters at $now")
         db.appLimitDao().resetDailyUsage(now)
@@ -59,6 +63,24 @@ class MidnightResetReceiver : BroadcastReceiver() {
             db.browsingHistoryDao().deleteOlderThan(cutoff)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to prune old browsing history", e)
+        }
+        if (context != null) {
+            try {
+                val zoneId = java.time.ZoneId.systemDefault()
+                val yesterdayEpochDay = java.time.LocalDate.now(zoneId).toEpochDay() - 1L
+                val tracker = com.stayfocused.app.tracker.UsageStatsTracker(context)
+                tracker.syncHourlyTelemetry(db, zoneId, yesterdayEpochDay)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to consolidate yesterday's hourly telemetry", e)
+            }
+        }
+        try {
+            val zoneId = java.time.ZoneId.systemDefault()
+            val cutoffEpochDay = java.time.LocalDate.now(zoneId).toEpochDay() - 30L
+            db.hourlyTelemetryDao().pruneOldDeviceTelemetry(cutoffEpochDay)
+            db.hourlyTelemetryDao().pruneOldAppTelemetry(cutoffEpochDay)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to prune old hourly telemetry", e)
         }
         scheduler.scheduleNextMidnightReset()
     }

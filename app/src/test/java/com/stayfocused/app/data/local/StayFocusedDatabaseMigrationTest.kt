@@ -508,7 +508,70 @@ class StayFocusedDatabaseMigrationTest {
     }
 
     @Test
-    fun freshV9DatabaseCreation_seedsDefaultShortFormRulesAndHasBrowsingTables() {
+    fun migrate9To10_preservesExistingDataAndCreatesHourlyTelemetryTables() {
+        // 1. Create database at version 9
+        var db = helper.createDatabase(TEST_DB + "-v9", 9)
+
+        // Insert app limit in v9
+        db.execSQL(
+            "INSERT INTO app_limits (" +
+                "packageName, appName, dailyTimeLimitMinutes, dailyLaunchLimit, isBlocked, " +
+                "currentDayUsageMs, currentDayLaunches, lastResetTimestamp, " +
+                "sessionAllowanceMinutes, cooldownDurationMinutes, cooldownStartElapsedRealtime, " +
+                "cooldownActiveUntilWallMs, cooldownBootCount, goalPackageName, goalDurationMinutes" +
+                ") VALUES (" +
+                "'com.instagram.android', 'Instagram', 30, 5, 0, 120000, 3, 1000000, " +
+                "10, 15, 50000, 2000000, 2, 'com.duolingo', 20)"
+        )
+        db.close()
+
+        // 2. Migrate to version 10
+        db = helper.runMigrationsAndValidate(TEST_DB + "-v9", 10, true, StayFocusedDatabase.MIGRATION_9_10)
+
+        // 3. Verify app_limits data survived
+        val appCursor = db.query(
+            "SELECT packageName, appName, sessionAllowanceMinutes, cooldownDurationMinutes, goalPackageName, goalDurationMinutes " +
+                "FROM app_limits WHERE packageName = 'com.instagram.android'"
+        )
+        assertTrue(appCursor.moveToFirst())
+        assertEquals("com.instagram.android", appCursor.getString(0))
+        assertEquals("Instagram", appCursor.getString(1))
+        assertEquals(10, appCursor.getInt(2))
+        assertEquals(15, appCursor.getInt(3))
+        assertEquals("com.duolingo", appCursor.getString(4))
+        assertEquals(20, appCursor.getInt(5))
+        appCursor.close()
+
+        // 4. Verify hourly_device_telemetry table exists and supports atomic upserts
+        db.execSQL(
+            "INSERT INTO hourly_device_telemetry (epochDay, hourOfDay, pickupCount, totalScreenTimeMs) " +
+                "VALUES (20000, 14, 3, 1800000)"
+        )
+        val deviceCursor = db.query("SELECT epochDay, hourOfDay, pickupCount, totalScreenTimeMs FROM hourly_device_telemetry WHERE epochDay = 20000 AND hourOfDay = 14")
+        assertTrue(deviceCursor.moveToFirst())
+        assertEquals(20000L, deviceCursor.getLong(0))
+        assertEquals(14, deviceCursor.getInt(1))
+        assertEquals(3, deviceCursor.getInt(2))
+        assertEquals(1800000L, deviceCursor.getLong(3))
+        deviceCursor.close()
+
+        // 5. Verify hourly_app_telemetry table exists and supports atomic upserts
+        db.execSQL(
+            "INSERT INTO hourly_app_telemetry (epochDay, hourOfDay, packageName, foregroundMs, shortsBlockedCount) " +
+                "VALUES (20000, 14, 'com.google.android.youtube', 900000, 2)"
+        )
+        val appTeleCursor = db.query("SELECT epochDay, hourOfDay, packageName, foregroundMs, shortsBlockedCount FROM hourly_app_telemetry WHERE epochDay = 20000 AND hourOfDay = 14")
+        assertTrue(appTeleCursor.moveToFirst())
+        assertEquals(20000L, appTeleCursor.getLong(0))
+        assertEquals(14, appTeleCursor.getInt(1))
+        assertEquals("com.google.android.youtube", appTeleCursor.getString(2))
+        assertEquals(900000L, appTeleCursor.getLong(3))
+        assertEquals(2, appTeleCursor.getInt(4))
+        appTeleCursor.close()
+    }
+
+    @Test
+    fun freshV10DatabaseCreation_seedsDefaultShortFormRulesAndHasHourlyTables() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         StayFocusedDatabase.resetInstanceForTesting()
         context.deleteDatabase("stay_focused_database")
@@ -530,6 +593,12 @@ class StayFocusedDatabaseMigrationTest {
 
             val emptyHistory = db.browsingHistoryDao().getRecentHistorySync()
             assertTrue(emptyHistory.isEmpty())
+
+            val emptyHourlyDevice = db.hourlyTelemetryDao().getHourlyDeviceTelemetryForDaySync(20000)
+            assertTrue(emptyHourlyDevice.isEmpty())
+
+            val emptyHourlyApp = db.hourlyTelemetryDao().getHourlyAppTelemetryForDaySync(20000)
+            assertTrue(emptyHourlyApp.isEmpty())
         }
     }
 }

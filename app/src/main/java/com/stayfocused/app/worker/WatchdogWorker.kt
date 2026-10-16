@@ -224,6 +224,11 @@ class WatchdogWorker(
 
         // 2. Reconcile daily usage stats from midnight to now
         usageTracker.syncUsageWithDatabase(appLimitDao)
+        try {
+            usageTracker.syncHourlyTelemetry(database)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to sync hourly telemetry in watchdog", e)
+        }
 
         // 3. Optional widget hook
         onUpdateGlanceWidget?.invoke()

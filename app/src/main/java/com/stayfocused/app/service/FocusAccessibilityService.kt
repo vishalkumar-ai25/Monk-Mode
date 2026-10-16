@@ -459,6 +459,8 @@ class FocusAccessibilityService : AccessibilityService() {
                             serviceScope.launch(Dispatchers.IO) {
                                 try {
                                     db.shortFormRuleDao().incrementScrollCount(detectedFeedId, System.currentTimeMillis())
+                                    val zdt = java.time.ZonedDateTime.now()
+                                    db.hourlyTelemetryDao().incrementShortsBlocked(zdt.toLocalDate().toEpochDay(), zdt.hour, rule.packageName)
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Failed to increment scroll count for $detectedFeedId", e)
                                 }
@@ -560,6 +562,8 @@ class FocusAccessibilityService : AccessibilityService() {
                 serviceScope.launch(Dispatchers.IO) {
                     try {
                         db.shortFormRuleDao().incrementScrollCount(decision.feedId, System.currentTimeMillis())
+                        val zdt = java.time.ZonedDateTime.now()
+                        db.hourlyTelemetryDao().incrementShortsBlocked(zdt.toLocalDate().toEpochDay(), zdt.hour, decision.rule.packageName)
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to increment scroll count for ${decision.feedId}", e)
                     }

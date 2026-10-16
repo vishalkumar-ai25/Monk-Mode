@@ -88,6 +88,7 @@ import com.stayfocused.app.domain.model.SettingsImportResult
 import com.stayfocused.app.oem.OemSurvivalHelper
 import com.stayfocused.app.ui.components.DailyUsageDial
 import com.stayfocused.app.ui.components.ExportPasswordDialog
+import com.stayfocused.app.ui.components.HourlyUsageChart
 import com.stayfocused.app.ui.components.ImportPasswordDialog
 import com.stayfocused.app.ui.components.ProtectionStatusCard
 import com.stayfocused.app.ui.components.QuickProfileChipRow
@@ -143,17 +144,27 @@ fun DashboardScreen(
     var topUsedApps by remember { mutableStateOf<List<AppUsageInfo>>(emptyList()) }
     var appToConfigureLimit by remember { mutableStateOf<AppUsageInfo?>(null) }
 
+    var todayEpochDay by remember { mutableLongStateOf(LocalDate.now().toEpochDay()) }
+    val hourlyDeviceTelemetry by remember(todayEpochDay) {
+        database.hourlyTelemetryDao().getHourlyDeviceTelemetryForDay(todayEpochDay)
+    }.collectAsState(initial = emptyList())
+    val hourlyAppTelemetry by remember(todayEpochDay) {
+        database.hourlyTelemetryDao().getHourlyAppTelemetryForDay(todayEpochDay)
+    }.collectAsState(initial = emptyList())
+
     val healthChecker = remember(context, database) { ProtectionHealthChecker(context, database) }
     var protectionSnapshot by remember { mutableStateOf(healthChecker.checkAll(hasBlockedDomains)) }
     val autostartIntent = remember { OemSurvivalHelper.findResolvableAutostartIntent(context) }
 
     fun refreshUsageAndHealth() {
+        todayEpochDay = LocalDate.now().toEpochDay()
         hasUsagePermission = usageTracker.hasUsageStatsPermission()
         protectionSnapshot = healthChecker.checkAll(hasBlockedDomains)
         if (hasUsagePermission) {
             scope.launch(Dispatchers.IO) {
                 try {
                     usageTracker.syncUsageWithDatabase(database.appLimitDao())
+                    usageTracker.syncHourlyTelemetry(database)
                     val totalMs = usageTracker.queryTotalDeviceScreenTimeMs()
                     val top = usageTracker.queryTopUsedApps(limit = 6)
                     withContext(Dispatchers.Main) {
@@ -452,6 +463,16 @@ fun DashboardScreen(
                         )
                     }
                 }
+            }
+        }
+
+        // 24-Hour Telemetry Histogram: Sliced hourly usage & device pickups
+        if (hasUsagePermission) {
+            item {
+                HourlyUsageChart(
+                    deviceTelemetry = hourlyDeviceTelemetry,
+                    appTelemetry = hourlyAppTelemetry
+                )
             }
         }
 

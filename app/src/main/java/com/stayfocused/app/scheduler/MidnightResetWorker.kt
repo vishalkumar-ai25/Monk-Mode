@@ -34,6 +34,22 @@ class MidnightResetWorker(
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to prune old browsing history in worker", e)
             }
+            try {
+                val zoneId = java.time.ZoneId.systemDefault()
+                val yesterdayEpochDay = java.time.LocalDate.now(zoneId).toEpochDay() - 1L
+                val tracker = com.stayfocused.app.tracker.UsageStatsTracker(applicationContext)
+                tracker.syncHourlyTelemetry(db, zoneId, yesterdayEpochDay)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to consolidate yesterday's hourly telemetry in worker", e)
+            }
+            try {
+                val zoneId = java.time.ZoneId.systemDefault()
+                val cutoffEpochDay = java.time.LocalDate.now(zoneId).toEpochDay() - 30L
+                db.hourlyTelemetryDao().pruneOldDeviceTelemetry(cutoffEpochDay)
+                db.hourlyTelemetryDao().pruneOldAppTelemetry(cutoffEpochDay)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to prune old hourly telemetry in worker", e)
+            }
 
             // Reschedule next midnight reset
             val scheduler = MidnightResetScheduler(applicationContext)

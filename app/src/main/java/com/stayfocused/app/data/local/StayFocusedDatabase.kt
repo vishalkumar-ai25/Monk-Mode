@@ -14,6 +14,7 @@ import com.stayfocused.app.data.local.dao.BreakSessionDao
 import com.stayfocused.app.data.local.dao.BrowsingHistoryDao
 import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.FocusProfileDao
+import com.stayfocused.app.data.local.dao.HourlyTelemetryDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
 import com.stayfocused.app.data.local.dao.ShortFormRuleDao
 import com.stayfocused.app.data.local.dao.StrictScheduleDao
@@ -28,6 +29,8 @@ import com.stayfocused.app.data.local.entities.BrowsingHistoryEntity
 import com.stayfocused.app.data.local.entities.FailsafeLogEntity
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
 import com.stayfocused.app.data.local.entities.GeofenceProfileEntity
+import com.stayfocused.app.data.local.entities.HourlyAppTelemetryEntity
+import com.stayfocused.app.data.local.entities.HourlyDeviceTelemetryEntity
 import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
@@ -51,6 +54,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
  * - Version 7: Added `short_form_rules` table for granular short-form video feed blocking (ADR 016).
  * - Version 8: Added `browsing_history`, `blocked_keywords`, and `blocked_url_paths` tables for URL & keyword blocking (ADR 017).
  * - Version 9: Added session cooldown, monotonic elapsed timing, and prerequisite goal app columns to `app_limits` (ADR 018).
+ * - Version 10: Added `hourly_device_telemetry` and `hourly_app_telemetry` tables for 24-hour usage & pickup telemetry (ADR 019).
  */
 @Database(
     entities = [
@@ -71,9 +75,11 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         ShortFormRuleEntity::class,
         BrowsingHistoryEntity::class,
         BlockedKeywordEntity::class,
-        BlockedUrlPathEntity::class
+        BlockedUrlPathEntity::class,
+        HourlyDeviceTelemetryEntity::class,
+        HourlyAppTelemetryEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -91,6 +97,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
     abstract fun browsingHistoryDao(): BrowsingHistoryDao
     abstract fun blockedKeywordDao(): BlockedKeywordDao
     abstract fun blockedUrlPathDao(): BlockedUrlPathDao
+    abstract fun hourlyTelemetryDao(): HourlyTelemetryDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -233,6 +240,31 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `hourly_device_telemetry` (" +
+                        "`epochDay` INTEGER NOT NULL, " +
+                        "`hourOfDay` INTEGER NOT NULL, " +
+                        "`pickupCount` INTEGER NOT NULL DEFAULT 0, " +
+                        "`totalScreenTimeMs` INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(`epochDay`, `hourOfDay`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_hourly_device_telemetry_epochDay` ON `hourly_device_telemetry` (`epochDay`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `hourly_app_telemetry` (" +
+                        "`epochDay` INTEGER NOT NULL, " +
+                        "`hourOfDay` INTEGER NOT NULL, " +
+                        "`packageName` TEXT COLLATE NOCASE NOT NULL, " +
+                        "`foregroundMs` INTEGER NOT NULL DEFAULT 0, " +
+                        "`shortsBlockedCount` INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(`epochDay`, `hourOfDay`, `packageName`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_hourly_app_telemetry_epochDay_hourOfDay` ON `hourly_app_telemetry` (`epochDay`, `hourOfDay`)")
+            }
+        }
+
         val DEFAULT_SHORT_FORM_RULES = listOf(
             ShortFormRuleEntity("youtube_shorts", "com.google.android.youtube", "YouTube Shorts", false, 0, 0, 0L),
             ShortFormRuleEntity("instagram_reels", "com.instagram.android", "Instagram Reels", false, 0, 0, 0L),
@@ -251,7 +283,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

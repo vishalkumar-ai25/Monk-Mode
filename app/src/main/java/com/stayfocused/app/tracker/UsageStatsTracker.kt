@@ -1,13 +1,19 @@
 package com.stayfocused.app.tracker
 
 import android.app.AppOpsManager
+import android.app.KeyguardManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import androidx.room.withTransaction
+import com.stayfocused.app.data.local.StayFocusedDatabase
 import com.stayfocused.app.data.local.dao.AppLimitDao
+import com.stayfocused.app.domain.ReconstructedTelemetry
+import com.stayfocused.app.domain.UsageEventsReconstructor
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -279,6 +285,90 @@ class UsageStatsTracker(
                 usageMs = existing.currentDayUsageMs,
                 launches = updatedLaunches
             )
+        }
+    }
+
+    /**
+     * Reconstructs 24-hour hourly telemetry (app slices and device pickups) for the specified [epochDay].
+     */
+    fun reconstructHourlyTelemetry(
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        epochDay: Long = LocalDate.now(zoneId).toEpochDay()
+    ): ReconstructedTelemetry {
+        if (!hasUsageStatsPermission()) {
+            return ReconstructedTelemetry(emptyList(), emptyList())
+        }
+        val manager = usageStatsManager ?: return ReconstructedTelemetry(emptyList(), emptyList())
+
+        val dayLocalDate = LocalDate.ofEpochDay(epochDay)
+        val windowStart = dayLocalDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val windowEnd = dayLocalDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val queryEnd = minOf(windowEnd, System.currentTimeMillis())
+
+        val isKeyguardSecure = try {
+            val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+            km?.isKeyguardSecure ?: true
+        } catch (_: Exception) { true }
+
+        val searchStart = maxOf(0L, windowStart - 12 * 3600 * 1000L)
+        val usageEvents = try {
+            manager.queryEvents(searchStart, queryEnd)
+        } catch (_: Exception) {
+            null
+        } ?: return ReconstructedTelemetry(emptyList(), emptyList())
+
+        val eventSequence = sequence {
+            val outEvent = UsageEvents.Event()
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(outEvent)
+                yield(
+                    UsageEventRecord(
+                        packageName = outEvent.packageName,
+                        className = outEvent.className,
+                        eventType = outEvent.eventType,
+                        timestamp = outEvent.timeStamp
+                    )
+                )
+            }
+        }
+
+        val reconstructor = UsageEventsReconstructor(zoneId = zoneId, isKeyguardSecure = isKeyguardSecure)
+        return reconstructor.reconstruct(eventSequence, windowStart, queryEnd)
+    }
+
+    /**
+     * Synchronizes reconstructed hourly telemetry into Room database for today (and optionally yesterday).
+     */
+    suspend fun syncHourlyTelemetry(
+        database: StayFocusedDatabase,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        targetEpochDay: Long = LocalDate.now(zoneId).toEpochDay()
+    ) {
+        if (!hasUsageStatsPermission()) return
+
+        val telemetry = reconstructHourlyTelemetry(zoneId = zoneId, epochDay = targetEpochDay)
+        val dao = database.hourlyTelemetryDao()
+
+        database.withTransaction {
+            // 1. Upsert device-level metrics (pickups & screen time)
+            for (deviceMetric in telemetry.deviceMetrics) {
+                dao.upsertDeviceTelemetry(
+                    epochDay = deviceMetric.epochDay,
+                    hourOfDay = deviceMetric.hourOfDay,
+                    pickupCount = deviceMetric.pickupCount,
+                    totalScreenTimeMs = deviceMetric.totalScreenTimeMs
+                )
+            }
+
+            // 2. Upsert app-level foreground times (preserving shortsBlockedCount via atomic SQL)
+            for (appSlice in telemetry.appSlices) {
+                dao.upsertAppForegroundUsage(
+                    epochDay = appSlice.epochDay,
+                    hourOfDay = appSlice.hourOfDay,
+                    packageName = appSlice.packageName,
+                    foregroundMs = appSlice.durationMs
+                )
+            }
         }
     }
 
