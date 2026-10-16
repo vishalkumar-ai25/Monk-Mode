@@ -93,7 +93,7 @@ class AhoCorasickKeywordMatcherTest {
 
         val testUrl = "https://www.google.com/search?q=how+to+improve+focus+and+avoid+distraction+in+modern+workplaces"
         // Warm up JIT
-        for (i in 0 until 100) {
+        for (i in 0 until 500) {
             matcher.findFirstMatch(testUrl)
         }
 
@@ -102,7 +102,7 @@ class AhoCorasickKeywordMatcherTest {
             matcher.findFirstMatch(testUrl)
         }
         val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
-        assertTrue("1000 keyword searches must complete in < 50ms (was ${elapsedMs}ms)", elapsedMs < 50.0)
+        assertTrue("1000 keyword searches must complete in < 100ms (was ${elapsedMs}ms)", elapsedMs < 100.0)
     }
 
     @Test

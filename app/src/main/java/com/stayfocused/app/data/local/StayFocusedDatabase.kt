@@ -50,6 +50,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
  * - Version 6: Added monotonic timing and checkpoint columns to `strict_sessions` table (ADR 011).
  * - Version 7: Added `short_form_rules` table for granular short-form video feed blocking (ADR 016).
  * - Version 8: Added `browsing_history`, `blocked_keywords`, and `blocked_url_paths` tables for URL & keyword blocking (ADR 017).
+ * - Version 9: Added session cooldown, monotonic elapsed timing, and prerequisite goal app columns to `app_limits` (ADR 018).
  */
 @Database(
     entities = [
@@ -72,7 +73,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         BlockedKeywordEntity::class,
         BlockedUrlPathEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -220,6 +221,18 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `app_limits` ADD COLUMN `sessionAllowanceMinutes` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `app_limits` ADD COLUMN `cooldownDurationMinutes` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `app_limits` ADD COLUMN `cooldownStartElapsedRealtime` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `app_limits` ADD COLUMN `cooldownActiveUntilWallMs` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `app_limits` ADD COLUMN `cooldownBootCount` INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE `app_limits` ADD COLUMN `goalPackageName` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `app_limits` ADD COLUMN `goalDurationMinutes` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         val DEFAULT_SHORT_FORM_RULES = listOf(
             ShortFormRuleEntity("youtube_shorts", "com.google.android.youtube", "YouTube Shorts", false, 0, 0, 0L),
             ShortFormRuleEntity("instagram_reels", "com.instagram.android", "Instagram Reels", false, 0, 0, 0L),
@@ -238,7 +251,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

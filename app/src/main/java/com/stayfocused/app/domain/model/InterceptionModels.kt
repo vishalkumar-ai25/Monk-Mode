@@ -33,6 +33,19 @@ sealed interface BlockReason {
         val matchType: String, // "DOMAIN", "PATH", "KEYWORD", "ADULT"
         val matchedRule: String
     ) : BlockReason
+
+    data class SessionCooldown(
+        val appName: String,
+        val remainingCooldownMs: Long,
+        val totalCooldownMs: Long
+    ) : BlockReason
+
+    data class GoalNotMet(
+        val appName: String,
+        val goalAppName: String,
+        val currentGoalUsageMs: Long,
+        val targetGoalUsageMs: Long
+    ) : BlockReason
 }
 
 sealed interface InterceptionResult {
@@ -52,7 +65,14 @@ data class AppLimitSnapshot(
     val dailyLaunchLimit: Int = 0,
     val currentDayUsageMs: Long = 0L,
     val currentDayLaunches: Int = 0,
-    val isBlocked: Boolean = false
+    val isBlocked: Boolean = false,
+    val sessionAllowanceMinutes: Int = 0,
+    val cooldownDurationMinutes: Int = 0,
+    val cooldownStartElapsedRealtime: Long = 0L,
+    val cooldownActiveUntilWallMs: Long = 0L,
+    val cooldownBootCount: Int = -1,
+    val goalPackageName: String? = null,
+    val goalDurationMinutes: Int = 0
 )
 
 data class FocusProfileRule(
@@ -78,5 +98,8 @@ data class InterceptionContext(
     val isGracePeriodActive: Boolean = false,
     val wasStrictActiveAtBoot: Boolean = false,
     val isBreakActive: Boolean = false,
+    val goalAppsUsageMs: Map<String, Long> = emptyMap(),
+    val currentBootCount: Int = 0,
+    val elapsedRealtimeMs: Long = 0L,
     val zoneId: ZoneId = ZoneId.systemDefault()
 )

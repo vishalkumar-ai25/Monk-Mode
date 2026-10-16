@@ -161,6 +161,8 @@ private fun getBlockTitle(reason: BlockReason): String {
         is BlockReason.SettingsTamper -> "Settings Protected"
         is BlockReason.ManuallyBlocked -> "App Blocked"
         is BlockReason.WebBlocked -> "Website Restricted"
+        is BlockReason.SessionCooldown -> "Cooldown in Progress"
+        is BlockReason.GoalNotMet -> "Prerequisite Goal Incomplete"
     }
 }
 
@@ -188,6 +190,15 @@ private fun getBlockDetail(reason: BlockReason): String {
         }
         is BlockReason.WebBlocked -> {
             "Access to \"${reason.target}\" is blocked by your ${reason.matchType.lowercase()} rule (${reason.matchedRule})."
+        }
+        is BlockReason.SessionCooldown -> {
+            val remainingMin = (reason.remainingCooldownMs / 60000L).coerceAtLeast(1)
+            "${reason.appName} is cooling down to prevent binge scrolling. Take a breather — cooldown active for another ${remainingMin}m."
+        }
+        is BlockReason.GoalNotMet -> {
+            val currentMin = reason.currentGoalUsageMs / 60000L
+            val targetMin = reason.targetGoalUsageMs / 60000L
+            "Spend at least ${targetMin}m on ${reason.goalAppName} today before unlocking ${reason.appName} (Current: ${currentMin}m / ${targetMin}m)."
         }
     }
 }

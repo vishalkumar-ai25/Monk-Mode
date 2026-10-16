@@ -4,6 +4,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -440,8 +441,77 @@ class StayFocusedDatabaseMigrationTest {
     }
 
     @Test
-    fun freshV8DatabaseCreation_seedsDefaultShortFormRulesAndHasBrowsingTables() {
+    fun migrate8To9_preservesExistingDataAndAddsCooldownAndGoalColumnsToAppLimits() {
+        // 1. Create database at version 8
+        var db = helper.createDatabase(TEST_DB + "-v8", 8)
+
+        // Insert app limit into version 8 (schema 8 has no cooldown/goal columns)
+        db.execSQL(
+            "INSERT INTO app_limits (packageName, appName, dailyTimeLimitMinutes, dailyLaunchLimit, isBlocked, currentDayUsageMs, currentDayLaunches, lastResetTimestamp) " +
+                "VALUES ('com.instagram.android', 'Instagram', 30, 5, 0, 120000, 3, 1000000)"
+        )
+        db.close()
+
+        // 2. Migrate to version 9
+        db = helper.runMigrationsAndValidate(
+            TEST_DB + "-v8",
+            9,
+            true,
+            StayFocusedDatabase.MIGRATION_8_9
+        )
+
+        // 3. Verify existing data survived and new columns have correct defaults
+        val cursor = db.query(
+            "SELECT packageName, appName, dailyTimeLimitMinutes, dailyLaunchLimit, isBlocked, currentDayUsageMs, currentDayLaunches, lastResetTimestamp, " +
+                "sessionAllowanceMinutes, cooldownDurationMinutes, cooldownStartElapsedRealtime, cooldownActiveUntilWallMs, cooldownBootCount, goalPackageName, goalDurationMinutes " +
+                "FROM app_limits WHERE packageName = 'com.instagram.android'"
+        )
+        assertTrue(cursor.moveToFirst())
+        assertEquals("com.instagram.android", cursor.getString(0))
+        assertEquals("Instagram", cursor.getString(1))
+        assertEquals(30, cursor.getInt(2))
+        assertEquals(5, cursor.getInt(3))
+        assertEquals(0, cursor.getInt(4))
+        assertEquals(120000L, cursor.getLong(5))
+        assertEquals(3, cursor.getInt(6))
+        assertEquals(1000000L, cursor.getLong(7))
+
+        // New columns in v9
+        assertEquals(0, cursor.getInt(8)) // sessionAllowanceMinutes
+        assertEquals(0, cursor.getInt(9)) // cooldownDurationMinutes
+        assertEquals(0L, cursor.getLong(10)) // cooldownStartElapsedRealtime
+        assertEquals(0L, cursor.getLong(11)) // cooldownActiveUntilWallMs
+        assertEquals(-1, cursor.getInt(12)) // cooldownBootCount
+        assertNull(cursor.getString(13)) // goalPackageName
+        assertEquals(0, cursor.getInt(14)) // goalDurationMinutes
+        cursor.close()
+
+        // 4. Verify updating cooldown and goal columns in migrated schema
+        db.execSQL(
+            "UPDATE app_limits SET sessionAllowanceMinutes = 10, cooldownDurationMinutes = 15, cooldownStartElapsedRealtime = 50000, " +
+                "cooldownActiveUntilWallMs = 2000000, cooldownBootCount = 2, goalPackageName = 'com.duolingo', goalDurationMinutes = 20 " +
+                "WHERE packageName = 'com.instagram.android'"
+        )
+        val updatedCursor = db.query(
+            "SELECT sessionAllowanceMinutes, cooldownDurationMinutes, cooldownStartElapsedRealtime, cooldownActiveUntilWallMs, cooldownBootCount, goalPackageName, goalDurationMinutes " +
+                "FROM app_limits WHERE packageName = 'com.instagram.android'"
+        )
+        assertTrue(updatedCursor.moveToFirst())
+        assertEquals(10, updatedCursor.getInt(0))
+        assertEquals(15, updatedCursor.getInt(1))
+        assertEquals(50000L, updatedCursor.getLong(2))
+        assertEquals(2000000L, updatedCursor.getLong(3))
+        assertEquals(2, updatedCursor.getInt(4))
+        assertEquals("com.duolingo", updatedCursor.getString(5))
+        assertEquals(20, updatedCursor.getInt(6))
+        updatedCursor.close()
+    }
+
+    @Test
+    fun freshV9DatabaseCreation_seedsDefaultShortFormRulesAndHasBrowsingTables() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        StayFocusedDatabase.resetInstanceForTesting()
+        context.deleteDatabase("stay_focused_database")
         val db = StayFocusedDatabase.getInstance(context)
         kotlinx.coroutines.runBlocking {
             val rules = db.shortFormRuleDao().getAllRules()
@@ -451,7 +521,7 @@ class StayFocusedDatabaseMigrationTest {
             val activeRules = db.shortFormRuleDao().getAllRules()
             assertTrue("Fresh DB should contain default short form rules", activeRules.isNotEmpty())
 
-            // Test DAOs for new v8 tables
+            // Test DAOs for new tables
             val emptyKeywords = db.blockedKeywordDao().getAllBlockedKeywordsSync()
             assertTrue(emptyKeywords.isEmpty())
 

@@ -408,4 +408,138 @@ class InterceptionDecisionEngineTest {
         val result = engine.evaluate(context)
         assertTrue("Break must be ignored when strict mode is active", result is InterceptionResult.Block)
     }
+
+    @Test
+    fun testSessionCooldownUninitializedDoesNotBlock() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            cooldownDurationMinutes = 15,
+            cooldownStartElapsedRealtime = 0L,
+            cooldownActiveUntilWallMs = 0L,
+            cooldownBootCount = -1
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            currentBootCount = 1,
+            elapsedRealtimeMs = 120_000L
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Uninitialized cooldown must not block", result is InterceptionResult.Allow)
+    }
+
+    @Test
+    fun testSessionCooldownActiveMonotonicBlocks() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            cooldownDurationMinutes = 15,
+            cooldownStartElapsedRealtime = 100_000L,
+            cooldownActiveUntilWallMs = System.currentTimeMillis() + 800_000L,
+            cooldownBootCount = 1
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            currentBootCount = 1,
+            elapsedRealtimeMs = 200_000L // 100s elapsed of 900s cooldown -> 800s remaining
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Active cooldown must block", result is InterceptionResult.Block)
+        val block = result as InterceptionResult.Block
+        assertTrue("Reason must be SessionCooldown", block.reason is BlockReason.SessionCooldown)
+        val cooldownReason = block.reason as BlockReason.SessionCooldown
+        assertEquals("Remaining ms matches", 800_000L, cooldownReason.remainingCooldownMs)
+        assertEquals("Total ms matches", 900_000L, cooldownReason.totalCooldownMs)
+    }
+
+    @Test
+    fun testSessionCooldownSubSecondRemainingAllowed() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            cooldownDurationMinutes = 15, // 900_000L
+            cooldownStartElapsedRealtime = 100_000L,
+            cooldownActiveUntilWallMs = 0L,
+            cooldownBootCount = 1
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            currentBootCount = 1,
+            elapsedRealtimeMs = 100_000L + 900_000L - 500L // remaining 500ms <= 1000ms clamp
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Sub-second remaining cooldown must not block to prevent stutter", result is InterceptionResult.Allow)
+    }
+
+    @Test
+    fun testSessionCooldownRebootWallClockFallbackBlocks() {
+        val wallExpiration = System.currentTimeMillis() + 300_000L
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            cooldownDurationMinutes = 15,
+            cooldownStartElapsedRealtime = 100_000L,
+            cooldownActiveUntilWallMs = wallExpiration,
+            cooldownBootCount = 1
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            currentBootCount = 2, // Reboot occurred! (bootCount 2 != 1)
+            elapsedRealtimeMs = 50_000L
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Wall clock fallback must block across reboot", result is InterceptionResult.Block)
+        val block = result as InterceptionResult.Block
+        assertTrue("Reason must be SessionCooldown", block.reason is BlockReason.SessionCooldown)
+    }
+
+    @Test
+    fun testGoalBasedPrerequisiteBlocksWhenGoalUsageInsufficient() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            goalPackageName = "com.duolingo",
+            goalDurationMinutes = 20 // 1,200,000L
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            goalAppsUsageMs = mapOf("com.duolingo" to 600_000L) // only 10m used
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Goal requirement not met must block", result is InterceptionResult.Block)
+        val block = result as InterceptionResult.Block
+        assertTrue("Reason must be GoalNotMet", block.reason is BlockReason.GoalNotMet)
+        val goalReason = block.reason as BlockReason.GoalNotMet
+        assertEquals("Duolingo", goalReason.goalAppName)
+        assertEquals(1_200_000L, goalReason.targetGoalUsageMs)
+        assertEquals(600_000L, goalReason.currentGoalUsageMs)
+    }
+
+    @Test
+    fun testGoalBasedPrerequisiteAllowsWhenGoalUsageMet() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            goalPackageName = "com.duolingo",
+            goalDurationMinutes = 20 // 1,200,000L
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.instagram.android",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            goalAppsUsageMs = mapOf("com.duolingo" to 1_250_000L) // 20m 50s used
+        )
+        val result = engine.evaluate(context)
+        assertTrue("Goal requirement met must allow", result is InterceptionResult.Allow)
+    }
 }

@@ -40,6 +40,8 @@ import com.stayfocused.app.domain.ShortFormViewContext
 import com.stayfocused.app.domain.UrlNormalizer
 import com.stayfocused.app.data.local.entities.BrowsingHistoryEntity
 import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
+import com.stayfocused.app.domain.SessionCooldownTracker
+import com.stayfocused.app.domain.SessionCooldownTickResult
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.catch
@@ -128,25 +130,33 @@ class FocusAccessibilityService : AccessibilityService() {
 
     fun setScreenInteractiveState(interactive: Boolean) {
         isScreenInteractive = interactive
+        val nowElapsed = SystemClock.elapsedRealtime()
         if (!interactive) {
             flushActiveDwellSession()
             val pkg = currentForegroundPackage
             if (pkg != null) {
-                val elapsed = SystemClock.elapsedRealtime() - currentForegroundStartElapsed
+                sessionCooldownTracker.onPackageBackgrounded(pkg, nowElapsed)
+                val elapsed = nowElapsed - currentForegroundStartElapsed
                 if (elapsed > 0) {
                     val total = currentForegroundBaseUsageMs + elapsed
                     currentForegroundBaseUsageMs = total
-                    currentForegroundStartElapsed = SystemClock.elapsedRealtime()
+                    currentForegroundStartElapsed = nowElapsed
                     persistUsage(pkg, total)
+                    val lower = pkg.lowercase()
+                    if (cachedGoalAppUsageMs.containsKey(lower)) {
+                        cachedGoalAppUsageMs = cachedGoalAppUsageMs + (lower to total)
+                    }
                 }
             }
             foregroundMonitorJob?.cancel()
         } else {
-            currentForegroundStartElapsed = SystemClock.elapsedRealtime()
+            currentForegroundStartElapsed = nowElapsed
             val pkg = currentForegroundPackage
             if (pkg != null) {
                 val limit = cachedAppLimits[pkg.lowercase()]
-                if (limit != null && limit.dailyTimeLimitMinutes > 0) {
+                val isGoal = cachedGoalAppUsageMs.containsKey(pkg.lowercase())
+                sessionCooldownTracker.onPackageForegrounded(pkg, nowElapsed, limit?.cooldownDurationMinutes ?: 0)
+                if ((limit != null && (limit.dailyTimeLimitMinutes > 0 || limit.sessionAllowanceMinutes > 0)) || isGoal) {
                     startForegroundMonitor(pkg, limit)
                 }
             }
@@ -171,6 +181,9 @@ class FocusAccessibilityService : AccessibilityService() {
     // In-memory hot cache for zero-disk-latency interception (< 10ms budget)
     @Volatile var cachedActiveProfiles: List<FocusProfileRule> = emptyList()
     @Volatile var cachedAppLimits: Map<String, AppLimitSnapshot> = emptyMap()
+    @Volatile var cachedGoalAppUsageMs: Map<String, Long> = emptyMap()
+    val sessionCooldownTracker = SessionCooldownTracker()
+    private val lastLaunchRecordedElapsed = java.util.concurrent.ConcurrentHashMap<String, Long>()
     @Volatile var isStrictModeActive: Boolean = false
     @Volatile var cachedStrictEndTimeMs: Long = 0L
     @Volatile var cachedActiveStrictSession: com.stayfocused.app.data.local.entities.StrictSessionEntity? = null
@@ -932,51 +945,37 @@ class FocusAccessibilityService : AccessibilityService() {
         if (target != currentForegroundPackage) {
             val previousPkg = currentForegroundPackage
             if (previousPkg != null && isScreenInteractive) {
+                sessionCooldownTracker.onPackageBackgrounded(previousPkg, nowElapsed)
                 val elapsed = nowElapsed - currentForegroundStartElapsed
                 if (elapsed > 0) {
                     val updatedUsage = currentForegroundBaseUsageMs + elapsed
                     persistUsage(previousPkg, updatedUsage)
+                    val lower = previousPkg.lowercase()
+                    if (cachedGoalAppUsageMs.containsKey(lower)) {
+                        cachedGoalAppUsageMs = cachedGoalAppUsageMs + (lower to updatedUsage)
+                    }
                 }
             }
 
             currentForegroundPackage = target
             currentForegroundStartElapsed = nowElapsed
+            sessionCooldownTracker.onPackageForegrounded(target, nowElapsed, appLimit?.cooldownDurationMinutes ?: 0)
 
-            val dbUsage = appLimit?.currentDayUsageMs ?: 0L
-            val osUsage = if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0) {
+            val lowerTarget = target.lowercase()
+            val isGoal = cachedGoalAppUsageMs.containsKey(lowerTarget)
+            val dbUsage = appLimit?.currentDayUsageMs ?: (if (isGoal) cachedGoalAppUsageMs[lowerTarget] ?: 0L else 0L)
+            val osUsage = if ((appLimit != null && appLimit.dailyTimeLimitMinutes > 0) || isGoal) {
                 usageStatsTracker?.queryPackageUsageToday(target) ?: 0L
             } else {
                 0L
             }
             currentForegroundBaseUsageMs = maxOf(dbUsage, osUsage)
-        }
-
-        // Immediate launch check: if daily time limit is already exhausted, block immediately!
-        if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0) {
-            val limitMs = appLimit.dailyTimeLimitMinutes * 60 * 1000L
-            if (currentForegroundBaseUsageMs >= limitMs) {
-                foregroundMonitorJob?.cancel()
-                Log.i(TAG, "Blocking package $target on launch: usage $currentForegroundBaseUsageMs >= $limitMs limit")
-                val reason = BlockReason.LimitReached(
-                    appName = appLimit.appName,
-                    limitType = com.stayfocused.app.domain.model.LimitType.TIME_LIMIT,
-                    used = currentForegroundBaseUsageMs,
-                    limit = limitMs
-                )
-                val manager = overlayManager
-                val canDraw = manager?.canDrawOverlays() ?: false
-                if (manager != null && canDraw) {
-                    manager.showOverlay(
-                        reason = reason,
-                        onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
-                    )
-                } else {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
-                }
-                return
+            if (isGoal) {
+                cachedGoalAppUsageMs = cachedGoalAppUsageMs + (lowerTarget to currentForegroundBaseUsageMs)
             }
         }
 
+        val bootCount = com.stayfocused.app.strict.SystemClockSnapshotProvider.getBootCount(applicationContext)
         val context = InterceptionContext(
             targetPackageName = target,
             currentTimeMillis = System.currentTimeMillis(),
@@ -987,26 +986,13 @@ class FocusAccessibilityService : AccessibilityService() {
             antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED || isStrictActive,
             isSettingsOrInstaller = false,
             isGracePeriodActive = isGracePeriodActive,
-            wasStrictActiveAtBoot = com.stayfocused.app.strict.GracePeriodManager.wasStrictActiveAtBoot
+            wasStrictActiveAtBoot = com.stayfocused.app.strict.GracePeriodManager.wasStrictActiveAtBoot,
+            goalAppsUsageMs = cachedGoalAppUsageMs,
+            currentBootCount = bootCount,
+            elapsedRealtimeMs = nowElapsed
         )
 
         val decision = engine.evaluate(context)
-
-        // Increment launch counts on *real* package transition (transients have already returned above)
-        if (target != lastForegroundPackage) {
-            flushActiveDwellSession()
-            lastForegroundPackage = target
-            val db = database
-            if (db != null) {
-                serviceScope.launch {
-                    try {
-                        usageStatsTracker?.recordAppLaunch(target, db.appLimitDao())
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error recording launch for $target", e)
-                    }
-                }
-            }
-        }
 
         when (decision) {
             is InterceptionResult.Block -> {
@@ -1030,20 +1016,47 @@ class FocusAccessibilityService : AccessibilityService() {
                 }
             }
             is InterceptionResult.Allow -> {
-                // If user switched away from a blocked app to an allowed app or home launcher, dismiss overlay
+                // Real package transition launch recording: ONLY executed on Allow!
+                // Blocked launches never increment or burn the user's daily quota.
+                if (target != lastForegroundPackage) {
+                    flushActiveDwellSession()
+                    val lastLaunch = lastLaunchRecordedElapsed[target]
+                    if (lastLaunch == null || nowElapsed - lastLaunch >= 5000L) {
+                        lastLaunchRecordedElapsed[target] = nowElapsed
+                        // Synchronously increment in-memory launch counter
+                        val lower = target.lowercase()
+                        val currentSnap = cachedAppLimits[lower]
+                        if (currentSnap != null) {
+                            cachedAppLimits = cachedAppLimits + (lower to currentSnap.copy(currentDayLaunches = currentSnap.currentDayLaunches + 1))
+                        }
+                        val db = database
+                        if (db != null) {
+                            serviceScope.launch {
+                                try {
+                                    usageStatsTracker?.recordAppLaunch(target, db.appLimitDao())
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error recording launch for $target", e)
+                                }
+                            }
+                        }
+                    }
+                    lastForegroundPackage = target
+                }
+
                 overlayManager?.hideOverlay()
                 foregroundMonitorJob?.cancel()
 
-                // If app has active time limit, monitor live in 1-second ticks
-                if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0) {
+                // If app has active time limit OR session allowance OR is a tracked goal app, monitor live in 1-second ticks
+                val isGoal = cachedGoalAppUsageMs.containsKey(target.lowercase())
+                if ((appLimit != null && (appLimit.dailyTimeLimitMinutes > 0 || appLimit.sessionAllowanceMinutes > 0)) || isGoal) {
                     startForegroundMonitor(target, appLimit)
                 }
             }
         }
     }
 
-    private fun startForegroundMonitor(target: String, appLimit: AppLimitSnapshot) {
-        val limitMs = appLimit.dailyTimeLimitMinutes * 60 * 1000L
+    private fun startForegroundMonitor(target: String, appLimit: AppLimitSnapshot?) {
+        val limitMs = (appLimit?.dailyTimeLimitMinutes ?: 0) * 60 * 1000L
         var sessionStartDay = usageStatsTracker?.getStartOfToday() ?: 0L
         foregroundMonitorJob?.cancel()
         foregroundMonitorJob = serviceScope.launch {
@@ -1056,7 +1069,9 @@ class FocusAccessibilityService : AccessibilityService() {
                 val todayStart = usageStatsTracker?.getStartOfToday() ?: sessionStartDay
                 if (todayStart > sessionStartDay) {
                     val yesterdayTotal = currentForegroundBaseUsageMs + (nowElapsed - currentForegroundStartElapsed)
-                    persistUsage(target, yesterdayTotal)
+                    if (appLimit != null) {
+                        persistUsage(target, yesterdayTotal)
+                    }
                     currentForegroundBaseUsageMs = 0L
                     currentForegroundStartElapsed = nowElapsed
                     lastPersistElapsed = nowElapsed
@@ -1067,13 +1082,20 @@ class FocusAccessibilityService : AccessibilityService() {
                 val sessionElapsed = nowElapsed - currentForegroundStartElapsed
                 val currentTotal = currentForegroundBaseUsageMs + sessionElapsed
 
+                // Keep cached goal app usage updated in real time
+                val lowerTarget = target.lowercase()
+                if (cachedGoalAppUsageMs.containsKey(lowerTarget)) {
+                    cachedGoalAppUsageMs = cachedGoalAppUsageMs + (lowerTarget to currentTotal)
+                }
+
                 // Incremental persistence every 15 seconds to defend against crashes/reboots
-                if (nowElapsed - lastPersistElapsed >= 15_000L) {
+                if (appLimit != null && nowElapsed - lastPersistElapsed >= 15_000L) {
                     lastPersistElapsed = nowElapsed
                     persistUsage(target, currentTotal)
                 }
 
-                if (currentTotal >= limitMs) {
+                // 1. Daily screen time limit check
+                if (appLimit != null && appLimit.dailyTimeLimitMinutes > 0 && currentTotal >= limitMs) {
                     persistUsage(target, currentTotal)
                     withContext(Dispatchers.Main) {
                         Log.i(TAG, "Limit expired in foreground for $target ($currentTotal >= $limitMs). Intercepting.")
@@ -1095,6 +1117,62 @@ class FocusAccessibilityService : AccessibilityService() {
                         }
                     }
                     break
+                }
+
+                // 2. Continuous Session Cooldown Check (Anti-Binge Interval)
+                if (appLimit != null && appLimit.sessionAllowanceMinutes > 0 && appLimit.cooldownDurationMinutes > 0) {
+                    val bootCount = com.stayfocused.app.strict.SystemClockSnapshotProvider.getBootCount(applicationContext)
+                    val cooldownResult = sessionCooldownTracker.tick(
+                        packageName = target,
+                        sessionAllowanceMinutes = appLimit.sessionAllowanceMinutes,
+                        cooldownDurationMinutes = appLimit.cooldownDurationMinutes,
+                        nowElapsed = nowElapsed,
+                        nowWallMs = System.currentTimeMillis(),
+                        currentBootCount = bootCount,
+                        isScreenInteractive = isScreenInteractive
+                    )
+                    if (cooldownResult is SessionCooldownTickResult.TriggerCooldown) {
+                        val db = database
+                        if (db != null) {
+                            serviceScope.launch(Dispatchers.IO) {
+                                try {
+                                    db.appLimitDao().updateCooldown(
+                                        packageName = target,
+                                        startElapsed = cooldownResult.startElapsedRealtime,
+                                        activeUntilWallMs = cooldownResult.activeUntilWallMs,
+                                        bootCount = cooldownResult.bootCount
+                                    )
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed persisting cooldown for $target", e)
+                                }
+                            }
+                        }
+                        // Update in-memory snapshot
+                        val currentSnap = cachedAppLimits[lowerTarget]
+                        if (currentSnap != null) {
+                            cachedAppLimits = cachedAppLimits + (lowerTarget to currentSnap.copy(
+                                cooldownStartElapsedRealtime = cooldownResult.startElapsedRealtime,
+                                cooldownActiveUntilWallMs = cooldownResult.activeUntilWallMs,
+                                cooldownBootCount = cooldownResult.bootCount
+                            ))
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            Log.i(TAG, "Session allowance exhausted for $target. Triggering cooldown.")
+                            val cooldownTotalMs = appLimit.cooldownDurationMinutes * 60_000L
+                            val reason = BlockReason.SessionCooldown(
+                                appName = appLimit.appName,
+                                remainingCooldownMs = cooldownTotalMs,
+                                totalCooldownMs = cooldownTotalMs
+                            )
+                            performGlobalAction(GLOBAL_ACTION_HOME)
+                            overlayManager?.showOverlay(
+                                reason = reason,
+                                onReturnHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+                            )
+                        }
+                        break
+                    }
                 }
             }
         }
@@ -1121,8 +1199,31 @@ class FocusAccessibilityService : AccessibilityService() {
                                 dailyLaunchLimit = entity.dailyLaunchLimit,
                                 currentDayUsageMs = entity.currentDayUsageMs,
                                 currentDayLaunches = entity.currentDayLaunches,
-                                isBlocked = entity.isBlocked
+                                isBlocked = entity.isBlocked,
+                                sessionAllowanceMinutes = entity.sessionAllowanceMinutes,
+                                cooldownDurationMinutes = entity.cooldownDurationMinutes,
+                                cooldownStartElapsedRealtime = entity.cooldownStartElapsedRealtime,
+                                cooldownActiveUntilWallMs = entity.cooldownActiveUntilWallMs,
+                                cooldownBootCount = entity.cooldownBootCount,
+                                goalPackageName = entity.goalPackageName,
+                                goalDurationMinutes = entity.goalDurationMinutes
                             )
+                        }
+
+                        // Hot cache initialization for prerequisite goal apps
+                        val goalPkgs = entities.mapNotNull { it.goalPackageName?.trim()?.lowercase() }
+                            .filter { it.isNotEmpty() }.toSet()
+                        if (goalPkgs.isNotEmpty()) {
+                            serviceScope.launch(Dispatchers.IO) {
+                                val currentMap = cachedGoalAppUsageMs.toMutableMap()
+                                for (gPkg in goalPkgs) {
+                                    if (!currentMap.containsKey(gPkg)) {
+                                        val usage = usageStatsTracker?.queryPackageUsageToday(gPkg) ?: 0L
+                                        currentMap[gPkg] = usage
+                                    }
+                                }
+                                cachedGoalAppUsageMs = currentMap
+                            }
                         }
                     }
             }

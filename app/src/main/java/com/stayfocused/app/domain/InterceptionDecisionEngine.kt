@@ -87,6 +87,58 @@ class InterceptionDecisionEngine {
             }
         }
 
+        // Rule 6: Active Session Cooldown (Anti-Binge Interval)
+        if (limit != null && limit.cooldownDurationMinutes > 0) {
+            // Guard: Cooldown must be actively initiated (cooldownStartElapsedRealtime > 0 or cooldownActiveUntilWallMs > 0)
+            // This prevents uninitialized cooldown columns from falsely blocking for the first 15 mins after reboot
+            val isCooldownActive = limit.cooldownStartElapsedRealtime > 0L || limit.cooldownActiveUntilWallMs > 0L
+            if (isCooldownActive) {
+                val cooldownTotalMs = limit.cooldownDurationMinutes * 60_000L
+                val remainingMs = if (limit.cooldownBootCount != -1 && context.currentBootCount == limit.cooldownBootCount && limit.cooldownStartElapsedRealtime > 0L) {
+                    // Same boot: calculate exact monotonic progression
+                    val elapsed = maxOf(0L, context.elapsedRealtimeMs - limit.cooldownStartElapsedRealtime)
+                    cooldownTotalMs - elapsed
+                } else if (limit.cooldownActiveUntilWallMs > 0L) {
+                    // Reboot or unknown boot count: fall back to wall-clock expiration
+                    maxOf(0L, limit.cooldownActiveUntilWallMs - context.currentTimeMillis)
+                } else {
+                    0L
+                }
+
+                // 1000ms clamp: ignore sub-second remaining time to prevent launch stutter
+                if (remainingMs > 1000L) {
+                    return InterceptionResult.Block(
+                        BlockReason.SessionCooldown(
+                            appName = limit.appName,
+                            remainingCooldownMs = remainingMs,
+                            totalCooldownMs = cooldownTotalMs
+                        )
+                    )
+                }
+            }
+        }
+
+        // Rule 7: Goal-Based Prerequisite ("Work Before Play")
+        if (limit != null && !limit.goalPackageName.isNullOrBlank() && limit.goalDurationMinutes > 0) {
+            val goalPkg = limit.goalPackageName.trim().lowercase()
+            // Do not block the goal app itself if it is set as target
+            if (goalPkg != target) {
+                val requiredGoalMs = limit.goalDurationMinutes * 60_000L
+                val currentGoalMs = context.goalAppsUsageMs[goalPkg] ?: 0L
+                if (currentGoalMs < requiredGoalMs) {
+                    val goalAppName = limit.goalPackageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                    return InterceptionResult.Block(
+                        BlockReason.GoalNotMet(
+                            appName = limit.appName,
+                            goalAppName = goalAppName,
+                            currentGoalUsageMs = currentGoalMs,
+                            targetGoalUsageMs = requiredGoalMs
+                        )
+                    )
+                }
+            }
+        }
+
         // Default: App is allowed
         return InterceptionResult.Allow()
     }

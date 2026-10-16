@@ -12,5 +12,12 @@ data class AppLimitEntity(
     val isBlocked: Boolean = false,
     val currentDayUsageMs: Long = 0L,
     val currentDayLaunches: Int = 0,
-    val lastResetTimestamp: Long = System.currentTimeMillis()
+    val lastResetTimestamp: Long = System.currentTimeMillis(),
+    val sessionAllowanceMinutes: Int = 0,
+    val cooldownDurationMinutes: Int = 0,
+    val cooldownStartElapsedRealtime: Long = 0L,
+    val cooldownActiveUntilWallMs: Long = 0L,
+    val cooldownBootCount: Int = -1,
+    val goalPackageName: String? = null,
+    val goalDurationMinutes: Int = 0
 )

@@ -39,6 +39,12 @@ interface AppLimitDao {
     @Query("UPDATE app_limits SET currentDayUsageMs = :usageMs, currentDayLaunches = :launches, lastResetTimestamp = :resetTimestamp WHERE packageName = :packageName")
     suspend fun updateUsageLaunchesAndReset(packageName: String, usageMs: Long, launches: Int, resetTimestamp: Long)
 
+    @Query("UPDATE app_limits SET cooldownStartElapsedRealtime = :startElapsed, cooldownActiveUntilWallMs = :activeUntilWallMs, cooldownBootCount = :bootCount WHERE packageName = :packageName")
+    suspend fun updateCooldown(packageName: String, startElapsed: Long, activeUntilWallMs: Long, bootCount: Int)
+
+    @Query("UPDATE app_limits SET cooldownStartElapsedRealtime = 0, cooldownActiveUntilWallMs = 0, cooldownBootCount = -1 WHERE packageName = :packageName")
+    suspend fun clearCooldown(packageName: String)
+
     @Query("""
         SELECT COALESCE(SUM(
             CASE 

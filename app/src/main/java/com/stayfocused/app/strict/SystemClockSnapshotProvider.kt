@@ -34,6 +34,10 @@ object SystemClockSnapshotProvider {
         )
     }
 
+    fun getBootCount(context: Context?): Int {
+        return getSnapshot(context).bootCount
+    }
+
     /**
      * For unit tests only: resets the process-level cached boot count.
      */

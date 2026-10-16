@@ -77,8 +77,12 @@ import com.stayfocused.app.ui.theme.MonkInk
 import com.stayfocused.app.ui.theme.MonkLine
 import com.stayfocused.app.ui.theme.MonkMuted
 import com.stayfocused.app.ui.theme.MonkSage
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
+import com.stayfocused.app.domain.GoalDependencyValidator
+import com.stayfocused.app.domain.GoalValidationResult
+import com.stayfocused.app.domain.RatchetValidationResult
 import com.stayfocused.app.ui.theme.MonkText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,7 +103,11 @@ data class AppLimitConfigTarget(
     val packageName: String,
     val appName: String,
     val initialMinutes: Int = 15,
-    val initialLaunches: Int = 0
+    val initialLaunches: Int = 0,
+    val initialSessionAllowanceMinutes: Int = 0,
+    val initialCooldownDurationMinutes: Int = 0,
+    val initialGoalPackageName: String? = null,
+    val initialGoalDurationMinutes: Int = 0
 )
 
 private val iconMemoryCache = LruCache<String, ImageBitmap>(120)
@@ -243,15 +251,15 @@ fun AppLimitsScreen(
                                 PresetButton(
                                     text = name,
                                     onClick = {
-                                        if (activeStrictSession != null && existing != null) {
-                                            Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
-                                            return@PresetButton
-                                        }
                                         editingTarget = AppLimitConfigTarget(
                                             packageName = pkg,
                                             appName = existing?.appName ?: name,
                                             initialMinutes = existing?.dailyTimeLimitMinutes ?: defaultMins,
-                                            initialLaunches = existing?.dailyLaunchLimit ?: 0
+                                            initialLaunches = existing?.dailyLaunchLimit ?: 0,
+                                            initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
+                                            initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
+                                            initialGoalPackageName = existing?.goalPackageName,
+                                            initialGoalDurationMinutes = existing?.goalDurationMinutes ?: 0
                                         )
                                     }
                                 )
@@ -305,15 +313,15 @@ fun AppLimitsScreen(
                                             .fillMaxWidth()
                                             .background(MonkCardAlt, RoundedCornerShape(10.dp))
                                             .clickable {
-                                                if (activeStrictSession != null && existing != null) {
-                                                    Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
-                                                    return@clickable
-                                                }
                                                 editingTarget = AppLimitConfigTarget(
                                                     packageName = appItem.packageName,
                                                     appName = appItem.appName,
                                                     initialMinutes = existing?.dailyTimeLimitMinutes ?: 15,
-                                                    initialLaunches = existing?.dailyLaunchLimit ?: 0
+                                                    initialLaunches = existing?.dailyLaunchLimit ?: 0,
+                                                    initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
+                                                    initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
+                                                    initialGoalPackageName = existing?.goalPackageName,
+                                                    initialGoalDurationMinutes = existing?.goalDurationMinutes ?: 0
                                                 )
                                             }
                                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -348,15 +356,15 @@ fun AppLimitsScreen(
 
                                         Button(
                                             onClick = {
-                                                if (activeStrictSession != null && existing != null) {
-                                                    Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
-                                                    return@Button
-                                                }
                                                 editingTarget = AppLimitConfigTarget(
                                                     packageName = appItem.packageName,
                                                     appName = appItem.appName,
                                                     initialMinutes = existing?.dailyTimeLimitMinutes ?: 15,
-                                                    initialLaunches = existing?.dailyLaunchLimit ?: 0
+                                                    initialLaunches = existing?.dailyLaunchLimit ?: 0,
+                                                    initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
+                                                    initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
+                                                    initialGoalPackageName = existing?.goalPackageName,
+                                                    initialGoalDurationMinutes = existing?.goalDurationMinutes ?: 0
                                                 )
                                             },
                                             shape = RoundedCornerShape(8.dp),
@@ -434,15 +442,15 @@ fun AppLimitsScreen(
                             }
                         },
                         onEditLimits = {
-                            if (activeStrictSession != null) {
-                                Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
-                                return@AppLimitItemCard
-                            }
                             editingTarget = AppLimitConfigTarget(
                                 packageName = appLimit.packageName,
                                 appName = appLimit.appName,
                                 initialMinutes = appLimit.dailyTimeLimitMinutes,
-                                initialLaunches = appLimit.dailyLaunchLimit
+                                initialLaunches = appLimit.dailyLaunchLimit,
+                                initialSessionAllowanceMinutes = appLimit.sessionAllowanceMinutes,
+                                initialCooldownDurationMinutes = appLimit.cooldownDurationMinutes,
+                                initialGoalPackageName = appLimit.goalPackageName,
+                                initialGoalDurationMinutes = appLimit.goalDurationMinutes
                             )
                         },
                         onTestLaunch = {
@@ -497,7 +505,11 @@ fun AppLimitsScreen(
                                 packageName = appItem.packageName,
                                 appName = appItem.appName,
                                 initialMinutes = existing?.dailyTimeLimitMinutes ?: 15,
-                                initialLaunches = existing?.dailyLaunchLimit ?: 0
+                                initialLaunches = existing?.dailyLaunchLimit ?: 0,
+                                initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
+                                initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
+                                initialGoalPackageName = existing?.goalPackageName,
+                                initialGoalDurationMinutes = existing?.goalDurationMinutes ?: 0
                             )
                         }
                     )
@@ -831,27 +843,154 @@ fun AppLimitsScreen(
         }
     }
 
-    // App Limit Configuration Dialog (Presets: 15m, 30m, 1h, 2h, Block Only)
+    // App Limit Configuration Dialog (Daily Limits, Launches, Continuous Cooldown, Prerequisite Goal)
     if (editingTarget != null) {
         val target = editingTarget!!
         var minutesLimit by remember(target.packageName) { mutableFloatStateOf(target.initialMinutes.toFloat()) }
         var launchLimit by remember(target.packageName) { mutableFloatStateOf(target.initialLaunches.toFloat()) }
+        var sessionAllowance by remember(target.packageName) { mutableFloatStateOf(target.initialSessionAllowanceMinutes.toFloat()) }
+        var cooldownDuration by remember(target.packageName) { mutableFloatStateOf((if (target.initialCooldownDurationMinutes > 0) target.initialCooldownDurationMinutes else 15).toFloat()) }
+        var selectedGoalPackage by remember(target.packageName) { mutableStateOf(target.initialGoalPackageName) }
+        var goalDuration by remember(target.packageName) { mutableFloatStateOf((if (target.initialGoalDurationMinutes > 0) target.initialGoalDurationMinutes else 15).toFloat()) }
+        var showGoalPicker by remember(target.packageName) { mutableStateOf(false) }
+
+        // Secondary Dialog: Select Prerequisite Goal App
+        if (showGoalPicker) {
+            val candidateGoalApps = remember(installedApps, target.packageName) {
+                installedApps.filter {
+                    it.packageName != target.packageName && it.packageName != context.packageName
+                }
+            }
+            var goalAppSearch by remember { mutableStateOf("") }
+            val filteredGoalApps = remember(candidateGoalApps, goalAppSearch) {
+                if (goalAppSearch.isBlank()) candidateGoalApps
+                else candidateGoalApps.filter {
+                    it.appName.contains(goalAppSearch, ignoreCase = true) || it.packageName.contains(goalAppSearch, ignoreCase = true)
+                }
+            }
+
+            AlertDialog(
+                onDismissRequest = { showGoalPicker = false },
+                containerColor = MonkCard,
+                title = {
+                    Text(
+                        text = "Select Goal App",
+                        color = MonkText,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(350.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = goalAppSearch,
+                            onValueChange = { goalAppSearch = it },
+                            placeholder = { Text("Search apps...", color = MonkMuted, fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // "None" option
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (selectedGoalPackage == null) MonkEmberDim else MonkCardAlt, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (selectedGoalPackage == null) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            selectedGoalPackage = null
+                                            showGoalPicker = false
+                                        }
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "None (No Goal App Required)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (selectedGoalPackage == null) MonkEmber else MonkText
+                                    )
+                                }
+                            }
+
+                            items(filteredGoalApps, key = { "goal_${it.packageName}" }) { item ->
+                                val isSelected = selectedGoalPackage == item.packageName
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isSelected) MonkEmberDim else MonkCardAlt, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            selectedGoalPackage = item.packageName
+                                            showGoalPicker = false
+                                        }
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AppIconImage(packageName = item.packageName, size = 28)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = item.appName,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isSelected) MonkEmber else MonkText
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { showGoalPicker = false },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonkEmber)
+                    ) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
 
         AlertDialog(
             onDismissRequest = { editingTarget = null },
             containerColor = MonkCard,
             title = {
-                Text(
-                    "Set Limit for ${target.appName}",
-                    color = MonkText,
-                    fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold
-                )
+                Column {
+                    Text(
+                        "Set Limit for ${target.appName}",
+                        color = MonkText,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold
+                    )
+                    val existing = appLimits.find { it.packageName == target.packageName }
+                    if (activeStrictSession != null && existing != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "🔒 Strict Mode Active: Limits can only be tightened",
+                            color = MonkEmber,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // SECTION 1: Daily Screen Time Limit
                     Text(
-                        text = "Daily Screen Time Limit:",
+                        text = "1. Daily Screen Time Limit:",
                         fontWeight = FontWeight.SemiBold,
                         color = MonkText
                     )
@@ -916,15 +1055,16 @@ fun AppLimitsScreen(
                         )
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    HorizontalDivider(color = MonkLine, thickness = 0.5.dp)
 
+                    // SECTION 2: Daily Launch Limit
                     Text(
-                        text = "Daily Launches: ${launchLimit.toInt()} times",
+                        text = "2. Daily Launches: ${launchLimit.toInt()} times",
                         fontWeight = FontWeight.SemiBold,
                         color = MonkText
                     )
                     Text(
-                        text = if (launchLimit.toInt() == 0) "No launch limit" else "Shield triggers on ${launchLimit.toInt() + 1}th launch",
+                        text = if (launchLimit.toInt() == 0) "No launch limit" else "Shield triggers on ${launchLimit.toInt() + 1}th launch (5s debounce)",
                         fontSize = 11.sp,
                         color = MonkMuted
                     )
@@ -939,6 +1079,199 @@ fun AppLimitsScreen(
                             inactiveTrackColor = MonkCardAlt
                         )
                     )
+
+                    HorizontalDivider(color = MonkLine, thickness = 0.5.dp)
+
+                    // SECTION 3: Continuous Session & Cooldown
+                    Text(
+                        text = "3. Session Allowance & Cooldown:",
+                        fontWeight = FontWeight.SemiBold,
+                        color = MonkText
+                    )
+                    Text(
+                        text = if (sessionAllowance.toInt() == 0)
+                            "Continuous session cooldown disabled"
+                        else
+                            "App locks after ${sessionAllowance.toInt()}m of continuous use",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (sessionAllowance.toInt() > 0) MonkEmber else MonkMuted
+                    )
+
+                    val sessionPresets = listOf(
+                        0 to "Off",
+                        5 to "5m",
+                        10 to "10m",
+                        15 to "15m",
+                        20 to "20m",
+                        30 to "30m"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        sessionPresets.forEach { (mins, label) ->
+                            val isSelected = sessionAllowance.toInt() == mins
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                    .clickable { sessionAllowance = mins.toFloat() }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MonkInk else MonkText
+                                )
+                            }
+                        }
+                    }
+
+                    if (sessionAllowance.toInt() > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Cooldown Duration: ${cooldownDuration.toInt()} minutes",
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonkText
+                        )
+                        Text(
+                            text = "Must wait ${cooldownDuration.toInt()}m before app unlocks (resets after inactivity)",
+                            fontSize = 11.sp,
+                            color = MonkMuted
+                        )
+
+                        val cooldownPresets = listOf(
+                            5 to "5m",
+                            10 to "10m",
+                            15 to "15m",
+                            30 to "30m",
+                            60 to "60m"
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            cooldownPresets.forEach { (mins, label) ->
+                                val isSelected = cooldownDuration.toInt() == mins
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                        .clickable { cooldownDuration = mins.toFloat() }
+                                        .padding(vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) MonkInk else MonkText
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MonkLine, thickness = 0.5.dp)
+
+                    // SECTION 4: Goal-Based Prerequisite
+                    Text(
+                        text = "4. Prerequisite Goal App:",
+                        fontWeight = FontWeight.SemiBold,
+                        color = MonkText
+                    )
+                    Text(
+                        text = "Require using a productive app before unlocking ${target.appName}",
+                        fontSize = 11.sp,
+                        color = MonkMuted
+                    )
+
+                    val goalAppLabel = remember(selectedGoalPackage, installedApps) {
+                        if (selectedGoalPackage == null) "None (No Goal App)"
+                        else installedApps.find { it.packageName == selectedGoalPackage }?.appName ?: selectedGoalPackage
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MonkCardAlt, RoundedCornerShape(10.dp))
+                            .border(1.dp, if (selectedGoalPackage != null) MonkEmber else MonkLine, RoundedCornerShape(10.dp))
+                            .clickable { showGoalPicker = true }
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            if (selectedGoalPackage != null) {
+                                AppIconImage(packageName = selectedGoalPackage!!, size = 28)
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = goalAppLabel ?: "None",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (selectedGoalPackage != null) MonkEmber else MonkText
+                            )
+                        }
+                        Text(
+                            text = if (selectedGoalPackage == null) "Select" else "Change",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MonkEmber
+                        )
+                    }
+
+                    if (selectedGoalPackage != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Required Goal Time: ${goalDuration.toInt()} minutes",
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonkText
+                        )
+                        Text(
+                            text = "Must spend ${goalDuration.toInt()}m in $goalAppLabel today to unlock ${target.appName}",
+                            fontSize = 11.sp,
+                            color = MonkMuted
+                        )
+
+                        val goalPresets = listOf(
+                            5 to "5m",
+                            10 to "10m",
+                            15 to "15m",
+                            20 to "20m",
+                            30 to "30m",
+                            45 to "45m"
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            goalPresets.forEach { (mins, label) ->
+                                val isSelected = goalDuration.toInt() == mins
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(if (isSelected) MonkEmber else MonkCardAlt, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (isSelected) MonkEmber else MonkLine, RoundedCornerShape(8.dp))
+                                        .clickable { goalDuration = mins.toFloat() }
+                                        .padding(vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) MonkInk else MonkText
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -948,12 +1281,23 @@ fun AppLimitsScreen(
                             val existing = appLimits.find { it.packageName == target.packageName }
                             val mins = minutesLimit.toInt()
                             val launches = launchLimit.toInt()
-                            val isZeroBlock = mins == 0 && launches == 0
+                            val sessionMins = sessionAllowance.toInt()
+                            val cooldownMins = if (sessionMins > 0) maxOf(cooldownDuration.toInt(), 5) else 0
+                            val goalPkg = selectedGoalPackage?.takeIf { it.isNotBlank() }
+                            val goalMins = if (goalPkg != null) maxOf(goalDuration.toInt(), 5) else 0
 
-                            // Strict Mode Invariant: If Strict Mode is active, existing limits cannot be modified or loosened
-                            if (activeStrictSession != null && existing != null) {
+                            val isZeroBlock = mins == 0 && launches == 0 && sessionMins == 0 && goalPkg == null
+
+                            // Validate goal configuration graph (cycle detection, self, Monk Mode)
+                            val goalValidation = GoalDependencyValidator.validateGoalConfig(
+                                targetPackage = target.packageName,
+                                goalPackage = goalPkg,
+                                goalDurationMinutes = goalMins,
+                                existingLimits = appLimits
+                            )
+                            if (goalValidation is GoalValidationResult.Invalid) {
                                 withContext(Dispatchers.Main) {
-                                    Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, goalValidation.reason, Toast.LENGTH_LONG).show()
                                 }
                                 return@launch
                             }
@@ -970,15 +1314,36 @@ fun AppLimitsScreen(
                                 isBlocked = isZeroBlock,
                                 currentDayUsageMs = initialUsageMs,
                                 currentDayLaunches = existing?.currentDayLaunches ?: 0,
-                                lastResetTimestamp = existing?.lastResetTimestamp ?: System.currentTimeMillis()
+                                lastResetTimestamp = existing?.lastResetTimestamp ?: System.currentTimeMillis(),
+                                sessionAllowanceMinutes = sessionMins,
+                                cooldownDurationMinutes = cooldownMins,
+                                cooldownStartElapsedRealtime = existing?.cooldownStartElapsedRealtime ?: 0L,
+                                cooldownActiveUntilWallMs = existing?.cooldownActiveUntilWallMs ?: 0L,
+                                cooldownBootCount = existing?.cooldownBootCount ?: -1,
+                                goalPackageName = goalPkg,
+                                goalDurationMinutes = goalMins
                             )
+
+                            // Strict Mode Invariant: If Strict Mode is active, existing limits cannot be loosened
+                            if (activeStrictSession != null && existing != null) {
+                                val ratchetResult = GoalDependencyValidator.validateStrictModeRatchet(existing, entityToSave)
+                                if (ratchetResult is RatchetValidationResult.Violation) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, ratchetResult.reason, Toast.LENGTH_LONG).show()
+                                    }
+                                    return@launch
+                                }
+                            }
+
                             database.appLimitDao().upsertAppLimit(entityToSave)
                             withContext(Dispatchers.Main) {
                                 editingTarget = null
                                 val msg = if (mins > 0)
                                     "Saved ${mins}m daily limit for ${target.appName}"
-                                else
+                                else if (isZeroBlock)
                                     "Shielded ${target.appName} (Immediate Block)"
+                                else
+                                    "Saved limits for ${target.appName}"
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             }
                         }
@@ -1017,7 +1382,7 @@ fun AppLimitItemCard(
     ) {
         val isLimitExceeded = (entity.dailyTimeLimitMinutes > 0 && entity.currentDayUsageMs >= entity.dailyTimeLimitMinutes * 60_000L) ||
             (entity.dailyLaunchLimit > 0 && entity.currentDayLaunches >= entity.dailyLaunchLimit) ||
-            (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0 && entity.isBlocked)
+            (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0 && entity.sessionAllowanceMinutes == 0 && entity.goalPackageName.isNullOrBlank() && entity.isBlocked)
 
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1041,10 +1406,10 @@ fun AppLimitItemCard(
                         "${usedMin}m used / ${entity.dailyTimeLimitMinutes}m daily limit"
                     } else if (entity.dailyLaunchLimit > 0) {
                         "${entity.currentDayLaunches} / ${entity.dailyLaunchLimit} launches today"
-                    } else if (entity.isBlocked) {
+                    } else if (entity.isBlocked && entity.sessionAllowanceMinutes == 0 && entity.goalPackageName.isNullOrBlank()) {
                         "Permanently Shielded (0m)"
                     } else {
-                        "Unrestricted"
+                        "Active Modalities"
                     }
                     Text(
                         text = limitText,
@@ -1053,6 +1418,24 @@ fun AppLimitItemCard(
                             fontSize = 11.sp
                         )
                     )
+                    if (entity.sessionAllowanceMinutes > 0) {
+                        Text(
+                            text = "Session: ${entity.sessionAllowanceMinutes}m allowance • ${entity.cooldownDurationMinutes}m cooldown",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MonkMuted,
+                                fontSize = 10.sp
+                            )
+                        )
+                    }
+                    if (!entity.goalPackageName.isNullOrBlank() && entity.goalDurationMinutes > 0) {
+                        Text(
+                            text = "Prerequisite: ${entity.goalDurationMinutes}m in goal app required",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MonkMuted,
+                                fontSize = 10.sp
+                            )
+                        )
+                    }
                 }
 
                 // Test Launch
@@ -1068,7 +1451,7 @@ fun AppLimitItemCard(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                if (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0) {
+                if (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0 && entity.sessionAllowanceMinutes == 0 && entity.goalPackageName.isNullOrBlank()) {
                     Switch(
                         checked = entity.isBlocked,
                         onCheckedChange = onToggleBlocked,
@@ -1180,10 +1563,6 @@ fun InstalledAppRow(
             .fillMaxWidth()
             .border(1.dp, MonkLine, RoundedCornerShape(12.dp))
             .clickable {
-                if (isStrictModeActive && existingLimit != null) {
-                    Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
-                    return@clickable
-                }
                 onConfigure()
             }
     ) {
@@ -1224,10 +1603,6 @@ fun InstalledAppRow(
 
             OutlinedButton(
                 onClick = {
-                    if (isStrictModeActive && existingLimit != null) {
-                        Toast.makeText(context, "Modifying limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
-                        return@OutlinedButton
-                    }
                     onConfigure()
                 },
                 shape = RoundedCornerShape(8.dp),
