@@ -599,8 +599,89 @@ class StayFocusedDatabaseMigrationTest {
 
             val emptyHourlyApp = db.hourlyTelemetryDao().getHourlyAppTelemetryForDaySync(20000)
             assertTrue(emptyHourlyApp.isEmpty())
+
+            val settings = db.pomodoroDao().getSettings()
+            assertTrue("Fresh DB should contain default pomodoro settings", settings != null)
+            assertEquals(25, settings?.workMinutes)
+
+            val stems = db.soundStemDao().getAllSoundStems()
+            assertTrue("Fresh DB should contain 6 default sound stems", stems.size >= 6)
         }
     }
+
+    @Test
+    fun migration10To11_createsPomodoroAndSoundStemTablesAndSeedsData() {
+        // 1. Create DB at version 10 with sample app limit and hourly telemetry
+        val dbV10 = helper.createDatabase(TEST_DB, 10)
+        dbV10.execSQL(
+            "INSERT INTO app_limits (" +
+                "packageName, appName, dailyTimeLimitMinutes, dailyLaunchLimit, isBlocked, " +
+                "currentDayUsageMs, currentDayLaunches, lastResetTimestamp, " +
+                "sessionAllowanceMinutes, cooldownDurationMinutes, cooldownStartElapsedRealtime, " +
+                "cooldownActiveUntilWallMs, cooldownBootCount, goalPackageName, goalDurationMinutes" +
+                ") VALUES (" +
+                "'com.instagram.android', 'Instagram', 30, 5, 0, 120000, 3, 1000000, " +
+                "10, 15, 50000, 2000000, 2, 'com.duolingo', 20)"
+        )
+        dbV10.execSQL(
+            "INSERT INTO hourly_device_telemetry (epochDay, hourOfDay, pickupCount, totalScreenTimeMs) " +
+                "VALUES (20000, 14, 3, 1800000)"
+        )
+        dbV10.close()
+
+        // 2. Migrate from 10 to 11
+        val db = helper.runMigrationsAndValidate(TEST_DB, 11, true, StayFocusedDatabase.MIGRATION_10_11)
+
+        // 3. Verify previous data survived
+        val appCursor = db.query("SELECT packageName, dailyTimeLimitMinutes FROM app_limits WHERE packageName = 'com.instagram.android'")
+        assertTrue(appCursor.moveToFirst())
+        assertEquals("com.instagram.android", appCursor.getString(0))
+        assertEquals(30, appCursor.getInt(1))
+        appCursor.close()
+
+        val teleCursor = db.query("SELECT epochDay, hourOfDay, pickupCount FROM hourly_device_telemetry WHERE epochDay = 20000 AND hourOfDay = 14")
+        assertTrue(teleCursor.moveToFirst())
+        assertEquals(3, teleCursor.getInt(2))
+        teleCursor.close()
+
+        // 4. Verify pomodoro_settings was seeded with defaults
+        val pomodoroCursor = db.query("SELECT id, workMinutes, shortBreakMinutes, longBreakMinutes, longBreakInterval FROM pomodoro_settings WHERE id = 1")
+        assertTrue(pomodoroCursor.moveToFirst())
+        assertEquals(1, pomodoroCursor.getInt(0))
+        assertEquals(25, pomodoroCursor.getInt(1))
+        assertEquals(5, pomodoroCursor.getInt(2))
+        assertEquals(15, pomodoroCursor.getInt(3))
+        assertEquals(4, pomodoroCursor.getInt(4))
+        pomodoroCursor.close()
+
+        // 5. Verify sound_stems was seeded with the 6 built-in stems
+        val stemsCursor = db.query("SELECT stemId, title FROM sound_stems ORDER BY stemId ASC")
+        val stemIds = mutableListOf<String>()
+        while (stemsCursor.moveToNext()) {
+            stemIds.add(stemsCursor.getString(0))
+        }
+        stemsCursor.close()
+
+        assertTrue(stemIds.contains("rain"))
+        assertTrue(stemIds.contains("waves"))
+        assertTrue(stemIds.contains("forest"))
+        assertTrue(stemIds.contains("whitenoise"))
+        assertTrue(stemIds.contains("brownnoise"))
+        assertTrue(stemIds.contains("campfire"))
+
+        // 6. Verify pomodoro_session table exists and supports writing
+        db.execSQL(
+            "INSERT INTO pomodoro_session (id, phaseName, currentCycle, targetElapsedRealtimeMs, targetWallTimeMs, totalDurationMs, remainingMs, bootCount, isRunning, originalDndFilter) " +
+                "VALUES (1, 'WORK', 1, 1500000, 1600000, 1500000, 1500000, 1, 1, 1)"
+        )
+        val sessionCursor = db.query("SELECT phaseName, currentCycle, isRunning FROM pomodoro_session WHERE id = 1")
+        assertTrue(sessionCursor.moveToFirst())
+        assertEquals("WORK", sessionCursor.getString(0))
+        assertEquals(1, sessionCursor.getInt(1))
+        assertEquals(1, sessionCursor.getInt(2))
+        sessionCursor.close()
+    }
 }
+
 
 

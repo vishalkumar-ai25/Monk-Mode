@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -157,6 +161,17 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- Pomodoro Study Timer & Multi-Stem Ambient Soundscape Service -->
+        <service
+            android:name=".service.FocusSoundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|mediaPlayback" />
+
+        <!-- Pomodoro Exact Alarm Transition Wakeup Receiver -->
+        <receiver
+            android:name=".receiver.PomodoroTransitionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

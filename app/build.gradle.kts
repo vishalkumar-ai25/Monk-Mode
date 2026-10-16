@@ -74,6 +74,10 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        noCompress += listOf("ogg", "wav")
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -117,6 +121,10 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
+
+    // Media & Audio
+    implementation("androidx.media:media:1.7.0")
+    implementation("androidx.compose.material:material-icons-extended")
 
     // Testing
     testImplementation(libs.junit)

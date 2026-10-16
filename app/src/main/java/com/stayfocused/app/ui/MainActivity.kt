@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -48,6 +49,7 @@ import com.stayfocused.app.strict.FailsafeManager
 import com.stayfocused.app.ui.screens.AppLimitsScreen
 import com.stayfocused.app.ui.screens.DashboardScreen
 import com.stayfocused.app.ui.screens.NotificationVaultScreen
+import com.stayfocused.app.ui.screens.PomodoroSoundscapeScreen
 import com.stayfocused.app.ui.screens.StrictLockScreen
 import com.stayfocused.app.ui.screens.WebBlockerScreen
 import com.stayfocused.app.ui.theme.MonkCardAlt
@@ -66,6 +68,7 @@ import kotlinx.coroutines.withContext
 
 enum class NavTab(val title: String, val icon: ImageVector) {
     DASHBOARD("Home", Icons.Default.Home),
+    POMODORO("Focus", Icons.Default.Timer),
     APP_LIMITS("Apps", Icons.Default.Settings),
     WEB_BLOCKER("Web", Icons.Default.Share),
     VAULT("Vault", Icons.Default.Notifications),
@@ -250,7 +253,8 @@ fun MainNavigationHost(
                         label = {
                             Text(
                                 text = tab.title,
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
+                                maxLines = 1,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
                         },
@@ -274,7 +278,11 @@ fun MainNavigationHost(
                 .padding(innerPadding)
         ) {
             when (selectedTab) {
-                NavTab.DASHBOARD -> DashboardScreen(database = database)
+                NavTab.DASHBOARD -> DashboardScreen(
+                    database = database,
+                    onNavigateToFocus = { selectedTab = NavTab.POMODORO }
+                )
+                NavTab.POMODORO -> PomodoroSoundscapeScreen(database = database)
                 NavTab.APP_LIMITS -> AppLimitsScreen(
                     database = database,
                     isVpnRunning = isVpnRunning,

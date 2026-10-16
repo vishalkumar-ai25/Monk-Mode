@@ -15,8 +15,10 @@ import com.stayfocused.app.data.local.dao.BrowsingHistoryDao
 import com.stayfocused.app.data.local.dao.FailsafeLogDao
 import com.stayfocused.app.data.local.dao.FocusProfileDao
 import com.stayfocused.app.data.local.dao.HourlyTelemetryDao
+import com.stayfocused.app.data.local.dao.PomodoroDao
 import com.stayfocused.app.data.local.dao.RecoveryCodeDao
 import com.stayfocused.app.data.local.dao.ShortFormRuleDao
+import com.stayfocused.app.data.local.dao.SoundStemDao
 import com.stayfocused.app.data.local.dao.StrictScheduleDao
 import com.stayfocused.app.data.local.dao.StrictSessionDao
 import com.stayfocused.app.data.local.dao.SuppressedNotificationDao
@@ -32,10 +34,13 @@ import com.stayfocused.app.data.local.entities.GeofenceProfileEntity
 import com.stayfocused.app.data.local.entities.HourlyAppTelemetryEntity
 import com.stayfocused.app.data.local.entities.HourlyDeviceTelemetryEntity
 import com.stayfocused.app.data.local.entities.NotificationBlockRuleEntity
+import com.stayfocused.app.data.local.entities.PomodoroSessionEntity
+import com.stayfocused.app.data.local.entities.PomodoroSettingsEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedDomainEntity
 import com.stayfocused.app.data.local.entities.ProfileBlockedPackageEntity
 import com.stayfocused.app.data.local.entities.RecoveryCodeEntity
 import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
+import com.stayfocused.app.data.local.entities.SoundStemEntity
 import com.stayfocused.app.data.local.entities.StrictScheduleEntity
 import com.stayfocused.app.data.local.entities.StrictSessionEntity
 import com.stayfocused.app.data.local.entities.SuppressedNotificationEntity
@@ -55,6 +60,7 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
  * - Version 8: Added `browsing_history`, `blocked_keywords`, and `blocked_url_paths` tables for URL & keyword blocking (ADR 017).
  * - Version 9: Added session cooldown, monotonic elapsed timing, and prerequisite goal app columns to `app_limits` (ADR 018).
  * - Version 10: Added `hourly_device_telemetry` and `hourly_app_telemetry` tables for 24-hour usage & pickup telemetry (ADR 019).
+ * - Version 11: Added `pomodoro_settings`, `pomodoro_session`, and `sound_stems` tables for Pomodoro & Soundscape (ADR 020).
  */
 @Database(
     entities = [
@@ -77,9 +83,12 @@ import com.stayfocused.app.data.local.entities.UnlockEventEntity
         BlockedKeywordEntity::class,
         BlockedUrlPathEntity::class,
         HourlyDeviceTelemetryEntity::class,
-        HourlyAppTelemetryEntity::class
+        HourlyAppTelemetryEntity::class,
+        PomodoroSettingsEntity::class,
+        PomodoroSessionEntity::class,
+        SoundStemEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 abstract class StayFocusedDatabase : RoomDatabase() {
@@ -98,6 +107,8 @@ abstract class StayFocusedDatabase : RoomDatabase() {
     abstract fun blockedKeywordDao(): BlockedKeywordDao
     abstract fun blockedUrlPathDao(): BlockedUrlPathDao
     abstract fun hourlyTelemetryDao(): HourlyTelemetryDao
+    abstract fun pomodoroDao(): PomodoroDao
+    abstract fun soundStemDao(): SoundStemDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -265,6 +276,60 @@ abstract class StayFocusedDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `pomodoro_settings` (" +
+                        "`id` INTEGER NOT NULL, " +
+                        "`workMinutes` INTEGER NOT NULL, " +
+                        "`shortBreakMinutes` INTEGER NOT NULL, " +
+                        "`longBreakMinutes` INTEGER NOT NULL, " +
+                        "`longBreakInterval` INTEGER NOT NULL, " +
+                        "`autoStartBreaks` INTEGER NOT NULL, " +
+                        "`autoStartWork` INTEGER NOT NULL, " +
+                        "`isDndEnabled` INTEGER NOT NULL, " +
+                        "`linkedProfileId` INTEGER, " +
+                        "PRIMARY KEY(`id`), " +
+                        "FOREIGN KEY(`linkedProfileId`) REFERENCES `focus_profiles`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pomodoro_settings_linkedProfileId` ON `pomodoro_settings` (`linkedProfileId`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `pomodoro_session` (" +
+                        "`id` INTEGER NOT NULL, " +
+                        "`phaseName` TEXT NOT NULL, " +
+                        "`currentCycle` INTEGER NOT NULL, " +
+                        "`targetElapsedRealtimeMs` INTEGER NOT NULL, " +
+                        "`targetWallTimeMs` INTEGER NOT NULL, " +
+                        "`totalDurationMs` INTEGER NOT NULL, " +
+                        "`remainingMs` INTEGER NOT NULL, " +
+                        "`bootCount` INTEGER NOT NULL, " +
+                        "`isRunning` INTEGER NOT NULL, " +
+                        "`originalDndFilter` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`))"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sound_stems` (" +
+                        "`stemId` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`assetPath` TEXT NOT NULL, " +
+                        "`volume` REAL NOT NULL, " +
+                        "`isEnabled` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`stemId`))"
+                )
+
+                // Seed default settings and 6 ambient sound stems
+                db.execSQL("INSERT OR IGNORE INTO `pomodoro_settings` (`id`, `workMinutes`, `shortBreakMinutes`, `longBreakMinutes`, `longBreakInterval`, `autoStartBreaks`, `autoStartWork`, `isDndEnabled`, `linkedProfileId`) VALUES (1, 25, 5, 15, 4, 0, 0, 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('rain', 'Rain & Thunder', 'sounds/rain.ogg', 0.0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('waves', 'Ocean Waves', 'sounds/waves.ogg', 0.0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('forest', 'Forest Wind', 'sounds/forest.ogg', 0.0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('whitenoise', 'White Noise', 'sounds/whitenoise.ogg', 0.0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('brownnoise', 'Brown Noise', 'sounds/brownnoise.ogg', 0.0, 0)")
+                db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('campfire', 'Campfire', 'sounds/campfire.ogg', 0.0, 0)")
+            }
+        }
+
         val DEFAULT_SHORT_FORM_RULES = listOf(
             ShortFormRuleEntity("youtube_shorts", "com.google.android.youtube", "YouTube Shorts", false, 0, 0, 0L),
             ShortFormRuleEntity("instagram_reels", "com.instagram.android", "Instagram Reels", false, 0, 0, 0L),
@@ -283,7 +348,7 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                     StayFocusedDatabase::class.java,
                     "stay_focused_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
@@ -292,6 +357,14 @@ abstract class StayFocusedDatabase : RoomDatabase() {
                             db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('instagram_stories', 'com.instagram.android', 'Instagram Stories', 0, 0, 0, 0)")
                             db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('snapchat_spotlight', 'com.snapchat.android', 'Snapchat Spotlight', 0, 0, 0, 0)")
                             db.execSQL("INSERT OR IGNORE INTO `short_form_rules` (`id`, `packageName`, `displayName`, `isBlocked`, `dailyScrollLimit`, `currentDayScrolls`, `lastEvictionTimestamp`) VALUES ('facebook_reels', 'com.facebook.katana', 'Facebook Reels', 0, 0, 0, 0)")
+
+                            db.execSQL("INSERT OR IGNORE INTO `pomodoro_settings` (`id`, `workMinutes`, `shortBreakMinutes`, `longBreakMinutes`, `longBreakInterval`, `autoStartBreaks`, `autoStartWork`, `isDndEnabled`, `linkedProfileId`) VALUES (1, 25, 5, 15, 4, 0, 0, 0, NULL)")
+                            db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('rain', 'Rain & Thunder', 'sounds/rain.ogg', 0.0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('waves', 'Ocean Waves', 'sounds/waves.ogg', 0.0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('forest', 'Forest Wind', 'sounds/forest.ogg', 0.0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('whitenoise', 'White Noise', 'sounds/whitenoise.ogg', 0.0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('brownnoise', 'Brown Noise', 'sounds/brownnoise.ogg', 0.0, 0)")
+                            db.execSQL("INSERT OR IGNORE INTO `sound_stems` (`stemId`, `title`, `assetPath`, `volume`, `isEnabled`) VALUES ('campfire', 'Campfire', 'sounds/campfire.ogg', 0.0, 0)")
                         }
                     })
                     .build()

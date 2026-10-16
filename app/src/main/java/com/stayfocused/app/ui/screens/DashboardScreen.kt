@@ -26,7 +26,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.ui.draw.clip
+import com.stayfocused.app.domain.model.PomodoroPhase
+import com.stayfocused.app.service.FocusSoundService
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -115,11 +120,15 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DashboardScreen(
     database: StayFocusedDatabase,
+    onNavigateToFocus: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+
+    val pomodoroState by FocusSoundService.pomodoroStateFlow.collectAsState()
+    val isSoundActive by FocusSoundService.isSoundscapeActiveFlow.collectAsState()
 
     val appLimits by database.appLimitDao().getAllAppLimits().collectAsState(initial = emptyList())
     val activeBreak by database.breakSessionDao().getActiveBreak().collectAsState(initial = null)
@@ -734,6 +743,82 @@ fun DashboardScreen(
                     }
                 }
             )
+        }
+
+        // Pomodoro Study & Ambient Soundscape Quick Card
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (pomodoroState.isRunning) MonkEmberDim else MonkCard
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (pomodoroState.isRunning) MonkEmber else MonkLine
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToFocus() }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(if (pomodoroState.isRunning) MonkEmber else MonkCardAlt),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isSoundActive) Icons.Default.GraphicEq else Icons.Default.Timer,
+                            contentDescription = null,
+                            tint = if (pomodoroState.isRunning) MonkInk else MonkText,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = when (pomodoroState.phase) {
+                                PomodoroPhase.WORK -> "Focus Interval (${pomodoroState.formattedRemainingTime})"
+                                PomodoroPhase.SHORT_BREAK -> "Short Break (${pomodoroState.formattedRemainingTime})"
+                                PomodoroPhase.LONG_BREAK -> "Long Break (${pomodoroState.formattedRemainingTime})"
+                                PomodoroPhase.PAUSED -> "Timer Paused"
+                                PomodoroPhase.IDLE -> if (isSoundActive) "Soundscape Active" else "Focus Sanctuary"
+                            },
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = if (pomodoroState.isRunning) MonkEmber else MonkText
+                            )
+                        )
+                        Text(
+                            text = when {
+                                pomodoroState.isRunning -> "Cycle ${pomodoroState.currentCycle} of ${pomodoroState.totalCycles} • Tap to view Sanctuary"
+                                isSoundActive -> "Offline ambient soundscape playing • Tap to adjust"
+                                else -> "Pomodoro study cycles & offline ambient soundscapes"
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 11.sp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = "Open →",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MonkEmber
+                    )
+                }
+            }
         }
 
         // Unified Protection Status Health Card
