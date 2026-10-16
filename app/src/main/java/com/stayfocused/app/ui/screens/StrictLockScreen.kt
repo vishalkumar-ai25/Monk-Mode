@@ -27,12 +27,15 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import com.stayfocused.app.util.ProtectionPreferences
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -98,6 +101,9 @@ fun StrictLockScreen(
     var showScheduleConfigDialog by remember { mutableStateOf(false) }
     var editingSchedule by remember { mutableStateOf<StrictScheduleEntity?>(null) }
     var activeChallengeQuote by remember { mutableStateOf<ChallengeQuote?>(null) }
+    val protectionPrefs = remember { ProtectionPreferences(context) }
+    var isBlockPowerOffEnabled by remember { mutableStateOf(protectionPrefs.isBlockPowerOffEnabled) }
+    var showBlockPowerOffDisclaimerDialog by remember { mutableStateOf(false) }
 
     var isDeviceAdminActive by remember {
         mutableStateOf(StayFocusedDeviceAdminReceiver.isDeviceAdminActive(context))
@@ -376,6 +382,83 @@ fun StrictLockScreen(
                         ) {
                             Text("Activate Anti-Uninstall Protection", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
+                    }
+                }
+            }
+        }
+
+        // Power Menu Defense ("Block Power Off") Card
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MonkCard),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (isBlockPowerOffEnabled) MonkSage.copy(alpha = 0.5f) else MonkLine,
+                        shape = RoundedCornerShape(18.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(
+                                        color = if (isBlockPowerOffEnabled) MonkSage else MonkMuted,
+                                        shape = CircleShape
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (isBlockPowerOffEnabled) "Block Power Off: ARMED" else "Block Power Off: INACTIVE",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isBlockPowerOffEnabled) MonkSage else MonkText
+                                    )
+                                )
+                                Text(
+                                    text = if (isBlockPowerOffEnabled) {
+                                        "Power menu dialog is intercepted and dismissed during active Strict Mode to prevent reboot bypasses."
+                                    } else {
+                                        "Prevent turning off or restarting the device to bypass focus restrictions while Strict Mode is active."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall.copy(color = MonkMuted, fontSize = 11.sp)
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isBlockPowerOffEnabled,
+                            onCheckedChange = { checked ->
+                                if (isStrictActive) {
+                                    Toast.makeText(context, "Cannot change protection settings while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                                    return@Switch
+                                }
+                                if (checked) {
+                                    showBlockPowerOffDisclaimerDialog = true
+                                } else {
+                                    protectionPrefs.isBlockPowerOffEnabled = false
+                                    isBlockPowerOffEnabled = false
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MonkInk,
+                                checkedTrackColor = MonkSage,
+                                uncheckedThumbColor = MonkMuted,
+                                uncheckedTrackColor = MonkCardAlt
+                            )
+                        )
                     }
                 }
             }
@@ -725,6 +808,54 @@ fun StrictLockScreen(
                         showScheduleConfigDialog = false
                         Toast.makeText(context, "Focus schedule saved", Toast.LENGTH_SHORT).show()
                     }
+                }
+            }
+        )
+    }
+
+    // Block Power Off Statutory Safety Disclaimer Dialog
+    if (showBlockPowerOffDisclaimerDialog) {
+        AlertDialog(
+            onDismissRequest = { showBlockPowerOffDisclaimerDialog = false },
+            containerColor = MonkCard,
+            title = {
+                Text(
+                    text = "Emergency Safety Notice",
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    color = MonkText
+                )
+            },
+            text = {
+                Text(
+                    text = "Blocking the power menu disables the on-screen Power Off and Restart options while Strict Mode is active to prevent bypass attempts.\n\nIn an emergency, your phone's physical hardware Emergency SOS (pressing the Power button 5 times quickly) and emergency call dialers remain fully functional and unblocked.\n\nActivate Block Power Off defense?",
+                    color = MonkMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        protectionPrefs.isBlockPowerOffEnabled = true
+                        isBlockPowerOffEnabled = true
+                        showBlockPowerOffDisclaimerDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MonkEmber,
+                        contentColor = MonkInk
+                    )
+                ) {
+                    Text("Enable Defense", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showBlockPowerOffDisclaimerDialog = false
+                    }
+                ) {
+                    Text("Cancel", color = MonkMuted)
                 }
             }
         )

@@ -1,7 +1,6 @@
 package com.stayfocused.app.domain
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -61,5 +60,58 @@ class RandomTextChallengeEngineTest {
             typingDurationMs = 300L
         )
         assertTrue(result is RandomTextVerificationResult.PasteDetected)
+    }
+
+    @Test
+    fun verifyInput_rejectsActiveClipboardMatching() {
+        val quote = "Difficulties strengthen the mind, as labor does the body."
+        val result = engine.verifyInput(
+            challengeText = quote,
+            userInput = quote,
+            typingDurationMs = 6000L,
+            keystrokeCount = quote.length,
+            clipboardText = "Difficulties strengthen the mind, as labor does the body."
+        )
+        assertTrue(result is RandomTextVerificationResult.PasteDetected)
+    }
+
+    @Test
+    fun verifyInput_rejectsLowKeystrokeCountWhenPastedInChunks() {
+        val quote = "Difficulties strengthen the mind, as labor does the body."
+        // User pasted in 2 chunks -> only 2 keystrokes for 57 characters
+        val result = engine.verifyInput(
+            challengeText = quote,
+            userInput = quote,
+            typingDurationMs = 12000L,
+            keystrokeCount = 2
+        )
+        assertTrue(result is RandomTextVerificationResult.PasteDetected)
+    }
+
+    @Test
+    fun verifyInput_rejectsPhysiologicallyImpossibleTypingSpeed() {
+        val quote = "Difficulties strengthen the mind, as labor does the body."
+        // 57 chars in 1500ms = 38 chars/second > 15 chars/second limit
+        val result = engine.verifyInput(
+            challengeText = quote,
+            userInput = quote,
+            typingDurationMs = 1500L,
+            keystrokeCount = quote.length
+        )
+        assertTrue(result is RandomTextVerificationResult.PasteDetected)
+    }
+
+    @Test
+    fun verifyInput_acceptsRealisticManualTypingWithTelemetry() {
+        val quote = "Difficulties strengthen the mind, as labor does the body."
+        // 57 chars typed in 8000ms (~7 chars/sec), 55 keystrokes (some backspaces/edits), empty clipboard
+        val result = engine.verifyInput(
+            challengeText = quote,
+            userInput = quote,
+            typingDurationMs = 8000L,
+            keystrokeCount = 55,
+            clipboardText = ""
+        )
+        assertTrue(result is RandomTextVerificationResult.Success)
     }
 }

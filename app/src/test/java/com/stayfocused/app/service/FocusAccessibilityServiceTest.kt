@@ -823,4 +823,95 @@ class FocusAccessibilityServiceTest {
             )
         }
     }
+
+    @Test
+    fun testPowerMenuDismissedWhenStrictAndEnabled() {
+        service.isStrictModeActive = true
+        service.isBlockPowerOffEnabled = true
+        every { service.performGlobalAction(any()) } returns true
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = "com.android.systemui"
+            className = "com.android.systemui.globalactions.GlobalActionsDialog"
+            text.add("Power off")
+            text.add("Restart")
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+    }
+
+    @Test
+    fun testPowerMenuAllowedWhenEmergencyDialer() {
+        service.isStrictModeActive = true
+        service.isBlockPowerOffEnabled = true
+        every { service.performGlobalAction(any()) } returns true
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            packageName = "com.android.emergency"
+            className = "com.android.emergency.EmergencyActivity"
+            text.add("Emergency Call")
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(exactly = 0) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+    }
+
+    @Test
+    fun testMultiWindowEvictionTriggersHomeAndOverlay() {
+        every { service.performGlobalAction(any()) } returns true
+        service.multiWindowInspector = com.stayfocused.app.domain.MultiWindowInspector { pkg ->
+            if (pkg == "com.google.android.youtube") {
+                BlockReason.ManuallyBlocked("YouTube")
+            } else {
+                null
+            }
+        }
+
+        val mockWin1 = mockk<android.view.accessibility.AccessibilityWindowInfo>(relaxed = true)
+        val mockWin2 = mockk<android.view.accessibility.AccessibilityWindowInfo>(relaxed = true)
+        val mockRoot1 = mockk<AccessibilityNodeInfo>(relaxed = true)
+        val mockRoot2 = mockk<AccessibilityNodeInfo>(relaxed = true)
+
+        every { mockWin1.id } returns 1
+        every { mockWin1.type } returns android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION
+        every { mockWin1.isActive } returns true
+        every { mockWin1.isFocused } returns true
+        every { mockRoot1.packageName } returns "com.stayfocused.app"
+        every { mockWin1.root } returns mockRoot1
+
+        every { mockWin2.id } returns 2
+        every { mockWin2.type } returns android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION
+        every { mockWin2.isActive } returns true
+        every { mockWin2.isFocused } returns false
+        every { mockRoot2.packageName } returns "com.google.android.youtube"
+        every { mockWin2.root } returns mockRoot2
+
+        every { service.windows } returns listOf(mockWin1, mockWin2)
+
+        val event = AccessibilityEvent.obtain().apply {
+            eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED
+            packageName = "com.google.android.youtube"
+        }
+
+        service.onAccessibilityEvent(event)
+
+        verify(atLeast = 1) {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+        verify(atLeast = 1) {
+            mockOverlayManager.showOverlay(
+                match { it is BlockReason.MultiWindowBlocked && it.appName == "com.google.android.youtube" },
+                any()
+            )
+        }
+    }
 }

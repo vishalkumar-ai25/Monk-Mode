@@ -1,5 +1,10 @@
 package com.stayfocused.app.ui.components
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.ClipboardManager
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -26,6 +33,8 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -35,11 +44,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalTextToolbar
+import androidx.compose.ui.platform.TextToolbar
+import androidx.compose.ui.platform.TextToolbarStatus
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import com.stayfocused.app.data.local.entities.FocusProfileEntity
 import com.stayfocused.app.data.local.entities.StrictScheduleEntity
 import com.stayfocused.app.domain.ChallengeQuote
@@ -503,8 +527,34 @@ fun ArmStrictSessionDialog(
     )
 }
 
+private class NoPasteTextToolbar(private val base: TextToolbar) : TextToolbar {
+    override val status: TextToolbarStatus get() = base.status
+    override fun hide() = base.hide()
+    override fun showMenu(
+        rect: androidx.compose.ui.geometry.Rect,
+        onCopyRequested: (() -> Unit)?,
+        onPasteRequested: (() -> Unit)?,
+        onCutRequested: (() -> Unit)?,
+        onSelectAllRequested: (() -> Unit)?
+    ) {
+        // Omit onPasteRequested so Paste is stripped from context menus
+        base.showMenu(rect, onCopyRequested, null, onCutRequested, onSelectAllRequested)
+    }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
+
 /**
- * Dialog for typing a Stoic quote challenge to disarm Strict Mode.
+ * Hardened Dialog for typing a Stoic quote challenge to disarm Strict Mode.
+ * Protected with FLAG_SECURE (display buffer blacking), Compose semantics clearing (anti-assist scraping),
+ * NoPasteTextToolbar context menu stripping, shortcut key interception, and keystroke cadence telemetry.
  */
 @Composable
 fun RandomTextChallengeDialog(
@@ -516,9 +566,27 @@ fun RandomTextChallengeDialog(
     val engine = remember { RandomTextChallengeEngine() }
     val startTimeMs = remember { System.currentTimeMillis() }
     var userInput by remember { mutableStateOf("") }
+    var keystrokeCount by remember { mutableIntStateOf(0) }
+
+    // Host Window FLAG_SECURE enforcement (covers screenshots, 3-finger swipe, and screen recording)
+    DisposableEffect(Unit) {
+        val activity = context.findActivity()
+        val window = activity?.window
+        val originalFlags = window?.attributes?.flags ?: 0
+        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose {
+            if (originalFlags and WindowManager.LayoutParams.FLAG_SECURE == 0) {
+                window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
+
+    val baseToolbar = LocalTextToolbar.current
+    val noPasteToolbar = remember(baseToolbar) { NoPasteTextToolbar(baseToolbar) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         containerColor = MonkCard,
         title = {
             Text(
@@ -543,43 +611,84 @@ fun RandomTextChallengeDialog(
                         .padding(14.dp)
                 ) {
                     Column {
-                        Text(
-                            text = "\"${quote.text}\"",
-                            fontFamily = FontFamily.Serif,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MonkEmber
-                        )
+                        // Semantics Shield: Zero accessibility text exposure + DisableSelection
+                        DisableSelection {
+                            Text(
+                                text = "\"${quote.text}\"",
+                                fontFamily = FontFamily.Serif,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MonkEmber,
+                                modifier = Modifier.clearAndSetSemantics { }
+                            )
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "- ${quote.author}",
-                            fontSize = 12.sp,
-                            color = MonkMuted,
-                            modifier = Modifier.align(Alignment.End)
-                        )
+                        DisableSelection {
+                            Text(
+                                text = "- ${quote.author}",
+                                fontSize = 12.sp,
+                                color = MonkMuted,
+                                modifier = Modifier
+                                    .align(Alignment.End)
+                                    .clearAndSetSemantics { }
+                            )
+                        }
                     }
                 }
 
-                OutlinedTextField(
-                    value = userInput,
-                    onValueChange = { userInput = it },
-                    label = { Text("Type quote here", color = MonkMuted) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
+                CompositionLocalProvider(LocalTextToolbar provides noPasteToolbar) {
+                    OutlinedTextField(
+                        value = userInput,
+                        onValueChange = { newValue ->
+                            keystrokeCount++
+                            userInput = newValue
+                        },
+                        label = { Text("Type quote here", color = MonkMuted) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onPreviewKeyEvent { event ->
+                                // Intercept Ctrl+V and Shift+Insert hardware shortcuts
+                                if (event.type == KeyEventType.KeyDown) {
+                                    val isCtrlV = event.key == Key.V && event.isCtrlPressed
+                                    val isShiftInsert = event.key == Key.Insert && event.isShiftPressed
+                                    if (isCtrlV || isShiftInsert) {
+                                        Toast.makeText(context, "Pasting is disabled. Please type the words mindfully.", Toast.LENGTH_SHORT).show()
+                                        return@onPreviewKeyEvent true
+                                    }
+                                }
+                                false
+                            },
+                        shape = RoundedCornerShape(10.dp),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            autoCorrect = false,
+                            capitalization = KeyboardCapitalization.None
+                        )
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     val duration = System.currentTimeMillis() - startTimeMs
-                    val result = engine.verifyInput(quote.text, userInput, duration)
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    val clipText = clipboard?.primaryClip?.let { clip ->
+                        if (clip.itemCount > 0) clip.getItemAt(0)?.text?.toString() else null
+                    }
+                    val result = engine.verifyInput(
+                        challengeText = quote.text,
+                        userInput = userInput,
+                        typingDurationMs = duration,
+                        keystrokeCount = keystrokeCount,
+                        clipboardText = clipText
+                    )
                     when (result) {
                         is RandomTextVerificationResult.Success -> {
                             onSuccess()
                         }
                         is RandomTextVerificationResult.PasteDetected -> {
-                            Toast.makeText(context, "Pasting detected! Please type the words mindfully.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Pasting or automated input detected! Please type the words mindfully.", Toast.LENGTH_SHORT).show()
                         }
                         is RandomTextVerificationResult.Mismatch -> {
                             Toast.makeText(context, "Quote does not match. Please verify spelling.", Toast.LENGTH_SHORT).show()

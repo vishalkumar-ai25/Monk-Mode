@@ -46,6 +46,11 @@ sealed interface BlockReason {
         val currentGoalUsageMs: Long,
         val targetGoalUsageMs: Long
     ) : BlockReason
+
+    data class MultiWindowBlocked(
+        val appName: String,
+        val isPictureInPicture: Boolean
+    ) : BlockReason
 }
 
 sealed interface InterceptionResult {

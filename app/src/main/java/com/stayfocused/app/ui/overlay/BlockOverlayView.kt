@@ -163,6 +163,7 @@ private fun getBlockTitle(reason: BlockReason): String {
         is BlockReason.WebBlocked -> "Website Restricted"
         is BlockReason.SessionCooldown -> "Cooldown in Progress"
         is BlockReason.GoalNotMet -> "Prerequisite Goal Incomplete"
+        is BlockReason.MultiWindowBlocked -> if (reason.isPictureInPicture) "Picture-in-Picture Restricted" else "Split-Screen Restricted"
     }
 }
 
@@ -199,6 +200,10 @@ private fun getBlockDetail(reason: BlockReason): String {
             val currentMin = reason.currentGoalUsageMs / 60000L
             val targetMin = reason.targetGoalUsageMs / 60000L
             "Spend at least ${targetMin}m on ${reason.goalAppName} today before unlocking ${reason.appName} (Current: ${currentMin}m / ${targetMin}m)."
+        }
+        is BlockReason.MultiWindowBlocked -> {
+            val modeStr = if (reason.isPictureInPicture) "Picture-in-Picture mode" else "split-screen or floating windows"
+            "${reason.appName} cannot run in $modeStr alongside allowed apps while focus rules are active."
         }
     }
 }

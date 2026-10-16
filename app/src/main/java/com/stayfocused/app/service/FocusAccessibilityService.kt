@@ -42,6 +42,12 @@ import com.stayfocused.app.data.local.entities.BrowsingHistoryEntity
 import com.stayfocused.app.data.local.entities.ShortFormRuleEntity
 import com.stayfocused.app.domain.SessionCooldownTracker
 import com.stayfocused.app.domain.SessionCooldownTickResult
+import com.stayfocused.app.domain.MultiWindowInspector
+import com.stayfocused.app.domain.MultiWindowDecision
+import com.stayfocused.app.domain.WindowSnapshot
+import com.stayfocused.app.domain.PowerMenuInspector
+import com.stayfocused.app.domain.PowerMenuDecision
+import com.stayfocused.app.util.ProtectionPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.catch
@@ -196,6 +202,110 @@ class FocusAccessibilityService : AccessibilityService() {
             cachedBreakEndTimeMs = if (value) Long.MAX_VALUE else 0L
         }
 
+    var powerMenuInspector: PowerMenuInspector = PowerMenuInspector()
+    var multiWindowInspector: MultiWindowInspector = MultiWindowInspector { pkg ->
+        evaluatePackageBlockReason(pkg)
+    }
+    @Volatile var isBlockPowerOffEnabled: Boolean = false
+    @Volatile var lastMultiWindowCheckElapsed: Long = -1000L
+
+    fun isStrictActiveNow(): Boolean {
+        val activeSession = cachedActiveStrictSession
+        return if (activeSession != null && activeSession.isActive) {
+            val snapshot = com.stayfocused.app.strict.SystemClockSnapshotProvider.getSnapshot(applicationContext)
+            trustedClock.isSessionActive(activeSession, snapshot)
+        } else {
+            isStrictModeActive && (cachedStrictEndTimeMs == 0L || System.currentTimeMillis() < cachedStrictEndTimeMs)
+        }
+    }
+
+    fun evaluatePackageBlockReason(packageName: String): BlockReason? {
+        val lower = packageName.lowercase()
+        val appLimit = cachedAppLimits[lower]
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val isGracePeriodActive = isBootGracePeriodProvider()
+        val isStrict = isStrictActiveNow()
+        val bootCount = com.stayfocused.app.strict.SystemClockSnapshotProvider.getBootCount(applicationContext)
+
+        val context = InterceptionContext(
+            targetPackageName = packageName,
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit,
+            activeProfiles = cachedActiveProfiles,
+            isStrictModeActive = isStrict,
+            isBreakActive = isBreakActive,
+            antiTamperEnabled = BuildConfig.ANTI_TAMPER_ENABLED || isStrict,
+            isSettingsOrInstaller = false,
+            isGracePeriodActive = isGracePeriodActive,
+            wasStrictActiveAtBoot = com.stayfocused.app.strict.GracePeriodManager.wasStrictActiveAtBoot,
+            goalAppsUsageMs = cachedGoalAppUsageMs,
+            currentBootCount = bootCount,
+            elapsedRealtimeMs = nowElapsed
+        )
+        val result = engine.evaluate(context)
+        return if (result is InterceptionResult.Block) result.reason else null
+    }
+
+    fun checkMultiWindowHierarchy() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastMultiWindowCheckElapsed < 300L) return
+        lastMultiWindowCheckElapsed = now
+
+        val activeWindows = runCatching { windows }.getOrNull() ?: return
+        // Proceed if multiple windows OR if any single window is PiP (blocked app minimized to PiP)
+        if (activeWindows.size <= 1 && activeWindows.none {
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && it.isInPictureInPictureMode
+            }) return
+
+        val snapshots = mutableListOf<WindowSnapshot>()
+        for (window in activeWindows) {
+            val isApp = window.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION
+            val isInPiP = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                window.isInPictureInPictureMode
+            } else {
+                false
+            }
+            var pkgName: String? = null
+            if (isApp) {
+                val root = runCatching {
+                    @Suppress("DEPRECATION")
+                    window.root
+                }.getOrNull()
+                try {
+                    pkgName = root?.packageName?.toString()
+                } finally {
+                    try { root?.recycle() } catch (_: Throwable) {}
+                }
+            }
+            snapshots.add(
+                WindowSnapshot(
+                    id = window.id,
+                    packageName = pkgName,
+                    isFocused = window.isFocused,
+                    isActive = window.isActive,
+                    isApplication = isApp,
+                    isInPictureInPicture = isInPiP
+                )
+            )
+        }
+
+        val decision = multiWindowInspector.evaluate(snapshots)
+        if (decision is MultiWindowDecision.EvictBlockedWindow) {
+            Log.w(TAG, "Multi-window violation detected: pkg=${decision.packageName}, pip=${decision.isPictureInPicture}")
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            val manager = overlayManager
+            val canDraw = manager?.canDrawOverlays() ?: false
+            if (manager != null && canDraw) {
+                manager.showOverlay(
+                    reason = BlockReason.MultiWindowBlocked(decision.packageName, decision.isPictureInPicture),
+                    onReturnHome = {
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                    }
+                )
+            }
+        }
+    }
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
@@ -242,11 +352,14 @@ class FocusAccessibilityService : AccessibilityService() {
         try {
             val prefs = getSharedPreferences("stayfocused_protection_prefs", Context.MODE_PRIVATE)
             isAdultContentBlockerEnabled = prefs.getBoolean("key_adult_blocker_enabled", true)
+            isBlockPowerOffEnabled = prefs.getBoolean(ProtectionPreferences.KEY_BLOCK_POWER_OFF_ENABLED, false)
             rebuildKeywordMatcher()
             prefListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
                 if (key == "key_adult_blocker_enabled") {
                     isAdultContentBlockerEnabled = sharedPreferences.getBoolean(key, true)
                     rebuildKeywordMatcher()
+                } else if (key == ProtectionPreferences.KEY_BLOCK_POWER_OFF_ENABLED) {
+                    isBlockPowerOffEnabled = sharedPreferences.getBoolean(key, false)
                 }
             }
             prefs.registerOnSharedPreferenceChangeListener(prefListener)
@@ -285,6 +398,12 @@ class FocusAccessibilityService : AccessibilityService() {
         runCatching {
             if (event == null) return
             val eventType = event.eventType
+
+            if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+                checkMultiWindowHierarchy()
+                return
+            }
+
             val packageName = event.packageName?.toString() ?: return
 
             if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
@@ -296,6 +415,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 handleWindowEvent(packageName, className, windowTexts)
                 checkShortFormVideoFeed(packageName, className, event)
                 checkBrowserAddressBar(packageName, className, event)
+                checkMultiWindowHierarchy()
             } else if (eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
                 checkShortFormVideoFeed(packageName, event.className?.toString(), event)
                 checkBrowserAddressBar(packageName, event.className?.toString(), event)
@@ -739,7 +859,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 dwellTimeMs = dwellMs,
                 wasBlocked = false
             )
-            CoroutineScope(Dispatchers.IO).launch {
+            serviceScope.launch(Dispatchers.IO) {
                 try {
                     db.browsingHistoryDao().insert(entity)
                 } catch (e: Exception) {
@@ -792,6 +912,38 @@ class FocusAccessibilityService : AccessibilityService() {
             return
         }
 
+        // ── Power Menu Guard (Evaluated BEFORE transient filter) ──────────────
+        val isStrictActive = isStrictActiveNow()
+        if (isStrictActive && isBlockPowerOffEnabled) {
+            val powerDecision = powerMenuInspector.evaluate(
+                packageName = target,
+                className = className,
+                windowTexts = windowTexts,
+                isStrictActive = isStrictActive,
+                isBlockPowerOffEnabled = isBlockPowerOffEnabled
+            )
+            if (powerDecision is PowerMenuDecision.DismissPowerMenu) {
+                Log.w(TAG, "Dismissing power menu during active Strict Mode: pkg=$target, cls=$className")
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                val db = database
+                if (db != null) {
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            db.failsafeLogDao().insertLog(
+                                com.stayfocused.app.data.local.entities.FailsafeLogEntity(
+                                    timestamp = System.currentTimeMillis(),
+                                    eventType = "POWER_MENU_DISMISSED",
+                                    details = "Dismissed power menu from $target ($className) during Strict Mode",
+                                    success = true
+                                )
+                            )
+                        } catch (_: Exception) {}
+                    }
+                }
+                return
+            }
+        }
+
         // ── Transient-window guard ────────────────────────────────────────────
         // Notification shade, volume panel, IME, permission dialogs and our own
         // overlay windows must NOT hide a live block overlay, update the last real
@@ -806,13 +958,6 @@ class FocusAccessibilityService : AccessibilityService() {
         }
         // ─────────────────────────────────────────────────────────────────────
 
-        val activeSession = cachedActiveStrictSession
-        val isStrictActive = if (activeSession != null && activeSession.isActive) {
-            val snapshot = com.stayfocused.app.strict.SystemClockSnapshotProvider.getSnapshot(applicationContext)
-            trustedClock.isSessionActive(activeSession, snapshot)
-        } else {
-            isStrictModeActive && (cachedStrictEndTimeMs == 0L || System.currentTimeMillis() < cachedStrictEndTimeMs)
-        }
         val isSettingsOrInstaller = packageRegistry?.isSettingsOrInstaller(target) ?: false
         val isTargetSettingsOrInstaller = isSettingsOrInstaller ||
                 SettingsTamperInspector.SETTINGS_PACKAGES.contains(target.lowercase()) ||

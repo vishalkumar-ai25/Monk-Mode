@@ -13,8 +13,8 @@ sealed interface RandomTextVerificationResult {
 
 /**
  * Pure Kotlin engine for Random Text stoic challenges during Strict Mode disarm.
- * Includes anti-paste burst detection to ensure the user physically types the quote,
- * breaking dopamine-driven craving loops through mindful, manual exertion.
+ * Includes anti-paste burst detection, keystroke telemetry, and flight-time analysis
+ * to ensure the user physically types the quote, breaking dopamine-driven craving loops.
  */
 class RandomTextChallengeEngine(
     private val quotes: List<ChallengeQuote> = DEFAULT_QUOTES
@@ -22,6 +22,8 @@ class RandomTextChallengeEngine(
 
     companion object {
         const val MIN_TYPING_MS_THRESHOLD = 1_000L // Anything under 1s for > 20 chars is paste
+        const val MAX_CHARS_PER_SECOND = 15.0 // Physiologically impossible for human manual typing on mobile
+        const val MIN_KEYSTROKE_RATIO = 0.6 // Keystroke events must be at least 60% of target length
 
         val DEFAULT_QUOTES = listOf(
             ChallengeQuote("We suffer more often in imagination than in reality.", "Seneca"),
@@ -43,18 +45,46 @@ class RandomTextChallengeEngine(
 
     /**
      * Verifies the user's input against the target challenge quote.
-     * Enforces anti-paste protection when typing duration is suspiciously short.
+     * Enforces anti-paste protection via typing duration, keystroke event telemetry,
+     * physiological rate limits, and clipboard inspection.
      */
     fun verifyInput(
         challengeText: String,
         userInput: String,
-        typingDurationMs: Long
+        typingDurationMs: Long,
+        keystrokeCount: Int = userInput.trim().length,
+        clipboardText: String? = null
     ): RandomTextVerificationResult {
         val trimmedTarget = challengeText.trim()
         val trimmedInput = userInput.trim()
 
+        // 1. Duration threshold check
         if (trimmedTarget.length > 20 && trimmedInput.length > 20 && typingDurationMs < MIN_TYPING_MS_THRESHOLD) {
             return RandomTextVerificationResult.PasteDetected
+        }
+
+        // 2. Active clipboard matching
+        if (!clipboardText.isNullOrBlank() && clipboardText.trim().length > 15) {
+            val trimmedClip = clipboardText.trim()
+            if (trimmedInput.contains(trimmedClip) || trimmedClip.contains(trimmedInput)) {
+                return RandomTextVerificationResult.PasteDetected
+            }
+        }
+
+        // 3. Maximum physiological typing speed
+        if (trimmedInput.length > 20) {
+            val charsPerSec = (trimmedInput.length * 1000.0) / maxOf(1L, typingDurationMs)
+            if (charsPerSec > MAX_CHARS_PER_SECOND) {
+                return RandomTextVerificationResult.PasteDetected
+            }
+        }
+
+        // 4. Keystroke count telemetry check (catching bulk pasted chunks)
+        if (trimmedTarget.length > 20 && trimmedInput.length > 20) {
+            val minKeystrokes = (trimmedTarget.length * MIN_KEYSTROKE_RATIO).toInt()
+            if (keystrokeCount < minKeystrokes) {
+                return RandomTextVerificationResult.PasteDetected
+            }
         }
 
         return if (trimmedTarget == trimmedInput) {

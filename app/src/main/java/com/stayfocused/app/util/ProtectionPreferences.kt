@@ -4,7 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * Lightweight storage for protection health diagnostics and watchdog tracking.
+ * Lightweight storage for protection health diagnostics, watchdog tracking,
+ * and zero-allocation synchronous feature toggles.
  */
 class ProtectionPreferences(context: Context) {
 
@@ -22,10 +23,15 @@ class ProtectionPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_ADULT_BLOCKER_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_ADULT_BLOCKER_ENABLED, value).apply()
 
+    var isBlockPowerOffEnabled: Boolean
+        get() = prefs.getBoolean(KEY_BLOCK_POWER_OFF_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_BLOCK_POWER_OFF_ENABLED, value).apply()
+
     companion object {
-        private const val PREFS_NAME = "stayfocused_protection_prefs"
+        const val PREFS_NAME = "stayfocused_protection_prefs"
         private const val KEY_LAST_WATCHDOG_RUN = "key_last_watchdog_run"
         private const val KEY_LAST_RED_ALERT = "key_last_red_alert"
         private const val KEY_ADULT_BLOCKER_ENABLED = "key_adult_blocker_enabled"
+        const val KEY_BLOCK_POWER_OFF_ENABLED = "key_strict_block_power_off"
     }
 }
