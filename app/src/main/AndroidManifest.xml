@@ -50,6 +50,7 @@
         <service
             android:name=".service.FocusAccessibilityService"
             android:exported="true"
+            android:stopWithTask="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -59,15 +60,30 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Persistent Foreground Service keeping Focus Accessibility & defense engine alive -->
+        <service
+            android:name=".service.FocusShieldService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Digital wellbeing continuous focus and anti-distraction session enforcement." />
+        </service>
+
         <!-- Local DNS Loopback VPN Service for website filtering -->
         <service
             android:name=".vpn.DnsVpnService"
             android:exported="false"
+            android:stopWithTask="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="specialUse">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Digital wellbeing continuous focus and anti-distraction session enforcement." />
         </service>
 
         <!-- Notification Listener Service for quiet distraction suppression -->
@@ -166,7 +182,11 @@
         <service
             android:name=".service.FocusSoundService"
             android:exported="false"
-            android:foregroundServiceType="specialUse|mediaPlayback" />
+            android:foregroundServiceType="specialUse|mediaPlayback">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Digital wellbeing continuous focus and anti-distraction session enforcement." />
+        </service>
 
         <!-- Pomodoro Exact Alarm Transition Wakeup Receiver -->
         <receiver

@@ -112,6 +112,9 @@ class MainActivity : ComponentActivity() {
         WatchdogWorker.enqueuePeriodicWatchdog(applicationContext)
         com.stayfocused.app.worker.WeeklyReflectionScheduler.scheduleWeeklyReflection(applicationContext)
 
+        // Ensure persistent Focus Shield Foreground Service is active to survive task removal from Recents
+        com.stayfocused.app.service.FocusShieldService.start(applicationContext)
+
         // Pre-seed default profiles if database is empty
         lifecycleScope.launch(Dispatchers.IO) {
             val profileDao = database.focusProfileDao()

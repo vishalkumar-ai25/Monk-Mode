@@ -368,6 +368,32 @@ class FocusAccessibilityService : AccessibilityService() {
         }
 
         observeDatabaseState()
+
+        try {
+            FocusShieldService.start(applicationContext)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not start FocusShieldService from FocusAccessibilityService.onCreate", e)
+        }
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        Log.i(TAG, "FocusAccessibilityService connected to framework; ensuring FocusShieldService active.")
+        try {
+            FocusShieldService.start(applicationContext)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not start FocusShieldService from onServiceConnected", e)
+        }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "Task removed from Recents. Maintaining FocusShieldService foreground state.")
+        try {
+            FocusShieldService.start(applicationContext)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not start FocusShieldService from onTaskRemoved", e)
+        }
     }
 
     private var prefListener: SharedPreferences.OnSharedPreferenceChangeListener? = null

@@ -557,10 +557,10 @@ fun AppLimitsScreen(
                 items(shortFormRules, key = { "feed_${it.id}" }) { rule ->
                     ShortFormRuleRow(
                         rule = rule,
-                        isLockedInStrict = activeStrictSession != null,
+                        isLockedInStrict = activeStrictSession != null && rule.isBlocked,
                         onToggleBlocked = { newBlocked ->
-                            if (activeStrictSession != null) {
-                                Toast.makeText(context, "Modifying feed rules is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                            if (!newBlocked && activeStrictSession != null) {
+                                Toast.makeText(context, "Unshielding feeds is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
                             } else {
                                 scope.launch(Dispatchers.IO) {
                                     database.shortFormRuleDao().setBlocked(rule.id, newBlocked)
@@ -568,8 +568,8 @@ fun AppLimitsScreen(
                             }
                         },
                         onUpdateScrollLimit = { limit ->
-                            if (activeStrictSession != null) {
-                                Toast.makeText(context, "Modifying feed limits is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
+                            if (activeStrictSession != null && rule.isBlocked && limit > rule.dailyScrollLimit) {
+                                Toast.makeText(context, "Increasing scroll allowance is prohibited while Strict Mode is active.", Toast.LENGTH_LONG).show()
                             } else {
                                 scope.launch(Dispatchers.IO) {
                                     database.shortFormRuleDao().setDailyScrollLimit(rule.id, limit)
@@ -1806,7 +1806,7 @@ fun ShortFormRuleRow(
                 Switch(
                     checked = rule.isBlocked,
                     onCheckedChange = { onToggleBlocked(it) },
-                    enabled = !isLockedInStrict,
+                    enabled = true,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = MonkInk,
                         checkedTrackColor = MonkEmber,
@@ -1836,6 +1836,7 @@ fun ShortFormRuleRow(
                     val limits = listOf(0 to "Instant Block", 5 to "5 Scrolls", 10 to "10 Scrolls", 20 to "20 Scrolls")
                     limits.forEach { (limitValue, label) ->
                         val isSelected = rule.dailyScrollLimit == limitValue
+                        val isLockedOption = isLockedInStrict && limitValue > rule.dailyScrollLimit
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -1848,7 +1849,7 @@ fun ShortFormRuleRow(
                                     if (isSelected) MonkEmber else MonkLine,
                                     RoundedCornerShape(8.dp)
                                 )
-                                .clickable(enabled = !isLockedInStrict) { onUpdateScrollLimit(limitValue) }
+                                .clickable { onUpdateScrollLimit(limitValue) }
                                 .padding(vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1856,7 +1857,7 @@ fun ShortFormRuleRow(
                                 text = label,
                                 fontSize = 10.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) (if (isLockedInStrict) MonkEmber.copy(alpha = 0.6f) else MonkEmber) else MonkMuted
+                                color = if (isSelected) MonkEmber else if (isLockedOption) MonkMuted.copy(alpha = 0.4f) else MonkMuted
                             )
                         }
                     }

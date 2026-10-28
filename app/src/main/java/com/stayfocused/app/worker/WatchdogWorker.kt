@@ -169,6 +169,9 @@ class WatchdogWorker(
             val isAlive = isAccessibilityServiceEnabled(applicationContext)
             val prefs = ProtectionPreferences(applicationContext)
 
+            // Ensure FocusShieldService is active to protect background enforcement against task swipe kills
+            com.stayfocused.app.service.FocusShieldService.start(applicationContext)
+
             executeWatchdog(
                 database = db,
                 usageTracker = tracker,

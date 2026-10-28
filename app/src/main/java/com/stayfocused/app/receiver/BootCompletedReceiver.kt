@@ -87,6 +87,9 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 // Immediately reconcile active strict schedules and arm if inside scheduled window
                 StrictScheduleReceiver().reconcileSchedules(context, db)
 
+                // Autostart persistent FocusShieldService on boot to elevate process priority
+                com.stayfocused.app.service.FocusShieldService.start(context)
+
                 // Autostart DnsVpnService on boot if VPN permission is already prepared
                 if (isBoot && android.net.VpnService.prepare(context) == null) {
                     try {
@@ -113,11 +116,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
             Log.w(TAG, "Could not reschedule midnight alarm on boot", e)
         }
 
-        // Re-arm weekly reflection Sunday schedule
+        // Re-arm weekly reflection Sunday schedule & periodic watchdog
         try {
             com.stayfocused.app.worker.WeeklyReflectionScheduler.scheduleWeeklyReflection(context)
+            com.stayfocused.app.worker.WatchdogWorker.enqueuePeriodicWatchdog(context)
         } catch (e: Exception) {
-            Log.w(TAG, "Could not reschedule weekly reflection on boot", e)
+            Log.w(TAG, "Could not reschedule weekly reflection or watchdog on boot", e)
         }
     }
 }
