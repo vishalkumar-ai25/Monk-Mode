@@ -86,6 +86,18 @@ object GoalDependencyValidator {
         existing: AppLimitEntity,
         newConfig: AppLimitEntity
     ): RatchetValidationResult {
+        // If the new config completely blocks the app, that is the strictest possible state
+        if (newConfig.isBlocked) {
+            return RatchetValidationResult.Valid
+        }
+
+        // If previously blocked, cannot unblock while Strict Mode is active
+        if (existing.isBlocked && !newConfig.isBlocked) {
+            return RatchetValidationResult.Violation(
+                "Cannot unshield app while Strict Mode is active."
+            )
+        }
+
         // Daily Screen Time Limit: cannot increase, cannot set to 0 if previously > 0
         if (existing.dailyTimeLimitMinutes > 0) {
             if (newConfig.dailyTimeLimitMinutes == 0 || newConfig.dailyTimeLimitMinutes > existing.dailyTimeLimitMinutes) {

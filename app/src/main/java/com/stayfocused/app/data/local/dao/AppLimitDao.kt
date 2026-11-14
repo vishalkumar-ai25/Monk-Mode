@@ -48,7 +48,7 @@ interface AppLimitDao {
     @Query("""
         SELECT COALESCE(SUM(
             CASE 
-                WHEN isBlocked = 1 AND dailyTimeLimitMinutes = 0 AND dailyLaunchLimit = 0 THEN currentDayLaunches
+                WHEN isBlocked = 1 THEN currentDayLaunches
                 WHEN dailyLaunchLimit > 0 AND currentDayLaunches >= dailyLaunchLimit 
                     THEN (currentDayLaunches - dailyLaunchLimit)
                 ELSE currentDayLaunches
@@ -57,7 +57,7 @@ interface AppLimitDao {
         FROM app_limits 
         WHERE lastResetTimestamp >= :since 
           AND (
-               (isBlocked = 1 AND dailyTimeLimitMinutes = 0 AND dailyLaunchLimit = 0) 
+               isBlocked = 1 
                OR (dailyLaunchLimit > 0 AND currentDayLaunches >= dailyLaunchLimit) 
                OR (dailyTimeLimitMinutes > 0 AND currentDayUsageMs >= (dailyTimeLimitMinutes * 60000))
           )

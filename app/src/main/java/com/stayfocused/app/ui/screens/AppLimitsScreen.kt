@@ -254,7 +254,7 @@ fun AppLimitsScreen(
                                         editingTarget = AppLimitConfigTarget(
                                             packageName = pkg,
                                             appName = existing?.appName ?: name,
-                                            initialMinutes = existing?.dailyTimeLimitMinutes ?: defaultMins,
+                                            initialMinutes = if (existing?.isBlocked == true) 0 else (existing?.dailyTimeLimitMinutes ?: defaultMins),
                                             initialLaunches = existing?.dailyLaunchLimit ?: 0,
                                             initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
                                             initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
@@ -316,7 +316,7 @@ fun AppLimitsScreen(
                                                 editingTarget = AppLimitConfigTarget(
                                                     packageName = appItem.packageName,
                                                     appName = appItem.appName,
-                                                    initialMinutes = existing?.dailyTimeLimitMinutes ?: 15,
+                                                    initialMinutes = if (existing?.isBlocked == true) 0 else (existing?.dailyTimeLimitMinutes ?: 15),
                                                     initialLaunches = existing?.dailyLaunchLimit ?: 0,
                                                     initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
                                                     initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
@@ -342,8 +342,8 @@ fun AppLimitsScreen(
                                                 )
                                                 Text(
                                                     text = if (existing != null) {
-                                                        if (existing.dailyTimeLimitMinutes > 0) "${existing.dailyTimeLimitMinutes}m daily limit"
-                                                        else if (existing.isBlocked) "Shielded"
+                                                        if (existing.isBlocked) "Shielded (Blocked)"
+                                                        else if (existing.dailyTimeLimitMinutes > 0) "${existing.dailyTimeLimitMinutes}m daily limit"
                                                         else "Unrestricted"
                                                     } else {
                                                         appItem.packageName
@@ -359,7 +359,7 @@ fun AppLimitsScreen(
                                                 editingTarget = AppLimitConfigTarget(
                                                     packageName = appItem.packageName,
                                                     appName = appItem.appName,
-                                                    initialMinutes = existing?.dailyTimeLimitMinutes ?: 15,
+                                                    initialMinutes = if (existing?.isBlocked == true) 0 else (existing?.dailyTimeLimitMinutes ?: 15),
                                                     initialLaunches = existing?.dailyLaunchLimit ?: 0,
                                                     initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
                                                     initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
@@ -445,7 +445,7 @@ fun AppLimitsScreen(
                             editingTarget = AppLimitConfigTarget(
                                 packageName = appLimit.packageName,
                                 appName = appLimit.appName,
-                                initialMinutes = appLimit.dailyTimeLimitMinutes,
+                                initialMinutes = if (appLimit.isBlocked) 0 else appLimit.dailyTimeLimitMinutes,
                                 initialLaunches = appLimit.dailyLaunchLimit,
                                 initialSessionAllowanceMinutes = appLimit.sessionAllowanceMinutes,
                                 initialCooldownDurationMinutes = appLimit.cooldownDurationMinutes,
@@ -504,7 +504,7 @@ fun AppLimitsScreen(
                             editingTarget = AppLimitConfigTarget(
                                 packageName = appItem.packageName,
                                 appName = appItem.appName,
-                                initialMinutes = existing?.dailyTimeLimitMinutes ?: 15,
+                                initialMinutes = if (existing?.isBlocked == true) 0 else (existing?.dailyTimeLimitMinutes ?: 15),
                                 initialLaunches = existing?.dailyLaunchLimit ?: 0,
                                 initialSessionAllowanceMinutes = existing?.sessionAllowanceMinutes ?: 0,
                                 initialCooldownDurationMinutes = existing?.cooldownDurationMinutes ?: 0,
@@ -1286,7 +1286,7 @@ fun AppLimitsScreen(
                             val goalPkg = selectedGoalPackage?.takeIf { it.isNotBlank() }
                             val goalMins = if (goalPkg != null) maxOf(goalDuration.toInt(), 5) else 0
 
-                            val isZeroBlock = mins == 0 && launches == 0 && sessionMins == 0 && goalPkg == null
+                            val isZeroBlock = mins == 0
 
                             // Validate goal configuration graph (cycle detection, self, Monk Mode)
                             val goalValidation = GoalDependencyValidator.validateGoalConfig(
@@ -1338,10 +1338,10 @@ fun AppLimitsScreen(
                             database.appLimitDao().upsertAppLimit(entityToSave)
                             withContext(Dispatchers.Main) {
                                 editingTarget = null
-                                val msg = if (mins > 0)
-                                    "Saved ${mins}m daily limit for ${target.appName}"
-                                else if (isZeroBlock)
+                                val msg = if (isZeroBlock)
                                     "Shielded ${target.appName} (Immediate Block)"
+                                else if (mins > 0)
+                                    "Saved ${mins}m daily limit for ${target.appName}"
                                 else
                                     "Saved limits for ${target.appName}"
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -1380,9 +1380,9 @@ fun AppLimitItemCard(
             .fillMaxWidth()
             .border(1.dp, MonkLine, RoundedCornerShape(18.dp))
     ) {
-        val isLimitExceeded = (entity.dailyTimeLimitMinutes > 0 && entity.currentDayUsageMs >= entity.dailyTimeLimitMinutes * 60_000L) ||
-            (entity.dailyLaunchLimit > 0 && entity.currentDayLaunches >= entity.dailyLaunchLimit) ||
-            (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0 && entity.sessionAllowanceMinutes == 0 && entity.goalPackageName.isNullOrBlank() && entity.isBlocked)
+        val isLimitExceeded = entity.isBlocked ||
+            (entity.dailyTimeLimitMinutes > 0 && entity.currentDayUsageMs >= entity.dailyTimeLimitMinutes * 60_000L) ||
+            (entity.dailyLaunchLimit > 0 && entity.currentDayLaunches >= entity.dailyLaunchLimit)
 
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1402,12 +1402,12 @@ fun AppLimitItemCard(
                         )
                     )
                     val usedMin = entity.currentDayUsageMs / (60 * 1000L)
-                    val limitText = if (entity.dailyTimeLimitMinutes > 0) {
+                    val limitText = if (entity.isBlocked) {
+                        "Permanently Shielded (Blocked)"
+                    } else if (entity.dailyTimeLimitMinutes > 0) {
                         "${usedMin}m used / ${entity.dailyTimeLimitMinutes}m daily limit"
                     } else if (entity.dailyLaunchLimit > 0) {
                         "${entity.currentDayLaunches} / ${entity.dailyLaunchLimit} launches today"
-                    } else if (entity.isBlocked && entity.sessionAllowanceMinutes == 0 && entity.goalPackageName.isNullOrBlank()) {
-                        "Permanently Shielded (0m)"
                     } else {
                         "Active Modalities"
                     }
@@ -1451,42 +1451,18 @@ fun AppLimitItemCard(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                if (entity.dailyTimeLimitMinutes == 0 && entity.dailyLaunchLimit == 0 && entity.sessionAllowanceMinutes == 0 && entity.goalPackageName.isNullOrBlank()) {
-                    Switch(
-                        checked = entity.isBlocked,
-                        onCheckedChange = onToggleBlocked,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = MonkEmber,
-                            checkedBorderColor = MonkEmber,
-                            uncheckedThumbColor = MonkMuted,
-                            uncheckedTrackColor = MonkCardAlt,
-                            uncheckedBorderColor = MonkLine
-                        )
+                Switch(
+                    checked = entity.isBlocked,
+                    onCheckedChange = onToggleBlocked,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = MonkEmber,
+                        checkedBorderColor = MonkEmber,
+                        uncheckedThumbColor = MonkMuted,
+                        uncheckedTrackColor = MonkCardAlt,
+                        uncheckedBorderColor = MonkLine
                     )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                if (isLimitExceeded) MonkDanger.copy(alpha = 0.15f) else MonkEmberDim.copy(alpha = 0.5f),
-                                RoundedCornerShape(6.dp)
-                            )
-                            .border(
-                                1.dp,
-                                if (isLimitExceeded) MonkDanger else MonkEmber,
-                                RoundedCornerShape(6.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (isLimitExceeded) "Locked" else "Active",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isLimitExceeded) MonkDanger else MonkEmber
-                        )
-                    }
-                }
+                )
             }
 
             // Visual Progress Bar for time limits
@@ -1588,9 +1564,9 @@ fun InstalledAppRow(
                     )
                     Text(
                         text = if (existingLimit != null) {
-                            if (existingLimit.dailyTimeLimitMinutes > 0) "${existingLimit.dailyTimeLimitMinutes}m limit configured"
+                            if (existingLimit.isBlocked) "Shielded (Blocked)"
+                            else if (existingLimit.dailyTimeLimitMinutes > 0) "${existingLimit.dailyTimeLimitMinutes}m limit configured"
                             else if (existingLimit.dailyLaunchLimit > 0) "${existingLimit.dailyLaunchLimit} launch limit configured"
-                            else if (existingLimit.isBlocked) "Shielded"
                             else "Unrestricted"
                         } else {
                             "No limit set"

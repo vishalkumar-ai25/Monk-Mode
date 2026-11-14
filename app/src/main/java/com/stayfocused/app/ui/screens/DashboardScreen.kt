@@ -532,8 +532,8 @@ fun DashboardScreen(
                             }
 
                             val matchingLimit = appLimits.find { it.packageName == app.packageName }
-                            val isLimitActive = matchingLimit != null && matchingLimit.dailyTimeLimitMinutes > 0
-                            val isShielded = matchingLimit != null && matchingLimit.isBlocked && matchingLimit.dailyTimeLimitMinutes == 0 && matchingLimit.dailyLaunchLimit == 0
+                            val isShielded = matchingLimit != null && matchingLimit.isBlocked
+                            val isLimitActive = matchingLimit != null && matchingLimit.dailyTimeLimitMinutes > 0 && !matchingLimit.isBlocked
 
                             Row(
                                 modifier = Modifier
@@ -977,7 +977,8 @@ fun DashboardScreen(
         val existingLimit = appLimits.find { it.packageName == app.packageName }
         var minutesLimit by remember(app.packageName) {
             mutableFloatStateOf(
-                existingLimit?.dailyTimeLimitMinutes?.toFloat() ?: 60f
+                if (existingLimit?.isBlocked == true) 0f
+                else existingLimit?.dailyTimeLimitMinutes?.toFloat() ?: 60f
             )
         }
 
@@ -1081,9 +1082,24 @@ fun DashboardScreen(
                                 isBlocked = isZeroBlock,
                                 currentDayUsageMs = app.foregroundTimeMs
                             )
+
+                            if (activeStrictSession != null && activeStrictSession!!.isActive && existingLimit != null) {
+                                val ratchetResult = com.stayfocused.app.domain.GoalDependencyValidator.validateStrictModeRatchet(existingLimit, updated)
+                                if (ratchetResult is com.stayfocused.app.domain.RatchetValidationResult.Violation) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, ratchetResult.reason, Toast.LENGTH_LONG).show()
+                                    }
+                                    return@launch
+                                }
+                            }
+
                             database.appLimitDao().upsertAppLimit(updated)
                             withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Limit saved for ${app.appName}", Toast.LENGTH_SHORT).show()
+                                val msg = if (isZeroBlock)
+                                    "Shielded ${app.appName} (Immediate Block)"
+                                else
+                                    "Saved ${minutesLimit.toInt()}m daily limit for ${app.appName}"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 appToConfigureLimit = null
                             }
                         }

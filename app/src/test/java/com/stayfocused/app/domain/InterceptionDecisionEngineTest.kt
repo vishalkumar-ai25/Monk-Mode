@@ -133,6 +133,26 @@ class InterceptionDecisionEngineTest {
         assertTrue(result is InterceptionResult.Block)
         val block = result as InterceptionResult.Block
         assertTrue(block.reason is BlockReason.ManuallyBlocked)
+        assertEquals("X", (block.reason as BlockReason.ManuallyBlocked).appName)
+    }
+
+    @Test
+    fun testAppBlockedWhenManuallyBlockedWithBlankAppNameFallsBackToPackageName() {
+        val appLimit = AppLimitSnapshot(
+            packageName = "com.anonymous.tracker",
+            appName = "",
+            isBlocked = true
+        )
+        val context = InterceptionContext(
+            targetPackageName = "com.anonymous.tracker",
+            currentTimeMillis = System.currentTimeMillis(),
+            appLimit = appLimit
+        )
+        val result = engine.evaluate(context)
+        assertTrue(result is InterceptionResult.Block)
+        val block = result as InterceptionResult.Block
+        assertTrue(block.reason is BlockReason.ManuallyBlocked)
+        assertEquals("com.anonymous.tracker", (block.reason as BlockReason.ManuallyBlocked).appName)
     }
 
     @Test
@@ -173,8 +193,9 @@ class InterceptionDecisionEngineTest {
     }
 
     @Test
-    fun testAppWithDailyTimeLimitAllowedWhenUsageWithinQuotaEvenIfIsBlockedTrue() {
-        // Reproduces user bug: Chrome has 30m daily limit, 0m used, isBlocked = true
+    fun testAppWithDailyTimeLimitBlockedWhenIsBlockedTrueRegardlessOfQuota() {
+        // isBlocked is a hard override: app is always blocked when isBlocked = true,
+        // even if it has a daily time limit with remaining quota.
         val appLimit = AppLimitSnapshot(
             packageName = "com.android.chrome",
             appName = "Chrome",
@@ -189,11 +210,14 @@ class InterceptionDecisionEngineTest {
             appLimit = appLimit
         )
         val result = engine.evaluate(context)
-        assertTrue("Chrome must be allowed when within 30m quota even if isBlocked is true", result is InterceptionResult.Allow)
+        assertTrue("Chrome must be blocked when isBlocked=true regardless of remaining quota", result is InterceptionResult.Block)
+        val block = result as InterceptionResult.Block
+        assertTrue(block.reason is BlockReason.ManuallyBlocked)
     }
 
     @Test
-    fun testAppWithDailyTimeLimitBlockedWhenQuotaExceededEvenIfIsBlockedTrue() {
+    fun testAppWithDailyTimeLimitBlockedWhenQuotaExceededAndIsBlockedTrue() {
+        // When isBlocked=true, ManuallyBlocked fires first (Rule 3 before Rule 4)
         val appLimit = AppLimitSnapshot(
             packageName = "com.android.chrome",
             appName = "Chrome",
@@ -210,12 +234,12 @@ class InterceptionDecisionEngineTest {
         val result = engine.evaluate(context)
         assertTrue(result is InterceptionResult.Block)
         val block = result as InterceptionResult.Block
-        assertTrue(block.reason is BlockReason.LimitReached)
-        assertEquals(LimitType.TIME_LIMIT, (block.reason as BlockReason.LimitReached).limitType)
+        assertTrue(block.reason is BlockReason.ManuallyBlocked)
     }
 
     @Test
-    fun testAppWithLaunchLimitAllowedWhenWithinQuotaEvenIfIsBlockedTrue() {
+    fun testAppWithLaunchLimitBlockedWhenIsBlockedTrueRegardlessOfQuota() {
+        // isBlocked hard override: blocked even if within launch quota
         val appLimit = AppLimitSnapshot(
             packageName = "com.zhiliaoapp.musically",
             appName = "TikTok",
@@ -229,7 +253,9 @@ class InterceptionDecisionEngineTest {
             appLimit = appLimit
         )
         val result = engine.evaluate(context)
-        assertTrue("App must be allowed when within launch quota even if isBlocked is true", result is InterceptionResult.Allow)
+        assertTrue("App must be blocked when isBlocked=true regardless of launch quota", result is InterceptionResult.Block)
+        val block = result as InterceptionResult.Block
+        assertTrue(block.reason is BlockReason.ManuallyBlocked)
     }
 
     @Test

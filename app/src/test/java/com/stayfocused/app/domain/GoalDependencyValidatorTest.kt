@@ -216,4 +216,54 @@ class GoalDependencyValidatorTest {
         val res3 = GoalDependencyValidator.validateStrictModeRatchet(existing, reduced)
         assertTrue(res3 is RatchetValidationResult.Violation)
     }
+
+    @Test
+    fun testStrictModeRatchetBlockingAppIsAlwaysAllowed() {
+        val existing = AppLimitEntity(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            dailyTimeLimitMinutes = 30
+        )
+        // Transitioning from 30m to Block Only (isBlocked = true, dailyTimeLimitMinutes = 0) is tightening
+        val blocked = existing.copy(dailyTimeLimitMinutes = 0, isBlocked = true)
+        val result = GoalDependencyValidator.validateStrictModeRatchet(existing, blocked)
+        assertEquals(RatchetValidationResult.Valid, result)
+    }
+
+    @Test
+    fun testStrictModeRatchetCompositeModalitiesTighteningToBlockedIsAllowed() {
+        val existing = AppLimitEntity(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            dailyTimeLimitMinutes = 30,
+            dailyLaunchLimit = 10,
+            sessionAllowanceMinutes = 15,
+            cooldownDurationMinutes = 20,
+            goalPackageName = "com.duolingo",
+            goalDurationMinutes = 15
+        )
+        // Transitioning an app with complex modalities to Block Only (isBlocked = true) is valid in Strict Mode
+        val blocked = existing.copy(
+            dailyTimeLimitMinutes = 0,
+            dailyLaunchLimit = 0,
+            sessionAllowanceMinutes = 0,
+            isBlocked = true
+        )
+        val result = GoalDependencyValidator.validateStrictModeRatchet(existing, blocked)
+        assertEquals(RatchetValidationResult.Valid, result)
+    }
+
+    @Test
+    fun testStrictModeRatchetUnblockingAppIsViolation() {
+        val existing = AppLimitEntity(
+            packageName = "com.instagram.android",
+            appName = "Instagram",
+            isBlocked = true
+        )
+        // Unblocking a shielded app while Strict Mode is active is prohibited
+        val unblocked = existing.copy(isBlocked = false, dailyTimeLimitMinutes = 30)
+        val result = GoalDependencyValidator.validateStrictModeRatchet(existing, unblocked)
+        assertTrue(result is RatchetValidationResult.Violation)
+        assertEquals("Cannot unshield app while Strict Mode is active.", (result as RatchetValidationResult.Violation).reason)
+    }
 }
